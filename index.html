@@ -1254,7 +1254,7 @@ function guardEdit(ownerName, what) {
 const ROLE_LABEL = { admin: 'แก้ไขได้ทั้งหมด', viewer: 'ดูอย่างเดียว',
                      sales: 'แก้ได้เฉพาะงานของตัวเอง', none: 'ยังไม่ได้กำหนดสิทธิ์' };
 
-const APP_VERSION = '2026-09-19e';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
+const APP_VERSION = '2026-09-19f';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
 function applyRoleToUI() {
   document.body.setAttribute('data-role', myRole.level);
   const nm = document.getElementById('sb-user-name'), rl = document.getElementById('sb-user-role');
@@ -2911,9 +2911,19 @@ let poInboxError = '';
 const PROJECT_TYPES = ['Automation','Electrical','Software','Installation','Maintenance','Product Supply','Service','Others'];
 
 /** หาโปรเจกต์ที่มีอยู่แล้วของ job นี้ (ปีเดียวกับวันที่ PO) — ปิดช่องโหว่สร้างซ้ำ 19 ก.ย. 2569 */
-function findExistingProject(x) {
+function projectsOfJob(x) {
   const y = (x.poDate || todayStr()).slice(0, 4), j = String(x.job || '').padStart(3, '0');
-  return projects.find(p => p.code === 'APY-' + y + '-' + j || String(p.name || '').startsWith(y + '-' + j + ' ')) || null;
+  return projects.filter(p => p.code === 'APY-' + y + '-' + j || String(p.name || '').startsWith(y + '-' + j + ' '));
+}
+function findExistingProject(x) { return projectsOfJob(x)[0] || null; }
+/** 1 job มีได้หลาย PO (เช่น ค่าของ + ค่าแรง) — Joe เคาะ 19 ก.ย. 2569: แยกเป็นอีกรายการ เลขงานเดิม
+ *  สร้างซ้ำไม่ได้เฉพาะ "เลข PO เดียวกัน" ที่บันทึกไปแล้ว */
+function projectWithPo(x) {
+  const no = String(x.poNo || '').trim(); if (!no) return null;
+  const p1 = projects.find(p => String(p.poNo || '').trim() === no || String(p.note || '').includes('PO ' + no));
+  if (p1) return p1;
+  const done = poInbox.find(i => i.id !== x.id && i.status === 'confirmed' && String(i.poNo || '').trim() === no && i.projectId);
+  return done ? (projects.find(p => String(p.id) === String(done.projectId)) || null) : null;
 }
 function renderPoInbox() {
   const listEl = document.getElementById('po-inbox-list');
@@ -2943,9 +2953,14 @@ function renderPoInbox() {
       <div class="po-top">
         <div><span class="badge b-new" style="background:#ede9fe;color:#5b21b6;">ใหม่</span> <b style="font-size:14px;margin-left:5px;">${esc(x.folder || ('job ' + x.job))}</b>
           <div>${x.fileUrl ? `<a class="po-file" href="${esc(x.fileUrl)}" target="_blank" rel="noopener">3. Output / ${esc(x.fileName)} ↗</a>` : `<span class="po-file">3. Output / ${esc(x.fileName)}</span>`}</div></div>
-        ${(() => { const ex = findExistingProject(x); return ex
-          ? `<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;"><span class="badge b-wait">มีในโปรเจกต์แล้ว: ${esc(ex.code)} ${fmtBaht(ex.budget)}</span><button class="btn btn-ghost btn-sm" onclick="skipPoInbox('${esc(x.id)}')">ข้าม</button><button class="btn btn-primary btn-sm" onclick="linkPoInbox('${esc(x.id)}','${esc(ex.id)}')">🔗 ผูกกับโปรเจกต์นี้</button></div>`
-          : `<div style="display:flex;gap:7px;"><button class="btn btn-ghost btn-sm" onclick="skipPoInbox('${esc(x.id)}')">ข้าม</button><button class="btn btn-success btn-sm" onclick="confirmPoInbox('${esc(x.id)}')">✓ ยืนยันต้นทุน + เข้า PM</button></div>`; })()}
+        ${(() => { const same = projectWithPo(x), exs = projectsOfJob(x);
+          if (same) return `<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;"><span class="badge b-wait">PO ${esc(x.poNo)} บันทึกแล้ว: ${esc(same.code)} ${fmtBaht(same.budget)}</span><button class="btn btn-ghost btn-sm" onclick="skipPoInbox('${esc(x.id)}')">ข้าม</button></div>`;
+          if (exs.length) return `<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">
+            <span class="badge b-wait">job นี้มีแล้ว ${exs.length} รายการ: ${exs.map(p => esc(p.name) + ' ' + fmtBaht(p.budget)).join(' · ')}</span>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;"><button class="btn btn-ghost btn-sm" onclick="skipPoInbox('${esc(x.id)}')">ข้าม</button>
+            ${exs.map(p => `<button class="btn btn-ghost btn-sm" onclick="linkPoInbox('${esc(x.id)}','${esc(p.id)}')">🔗 PO เดียวกับ ${esc(fmtBaht(p.budget))}</button>`).join('')}
+            <button class="btn btn-success btn-sm" onclick="confirmPoInbox('${esc(x.id)}')">➕ PO ใบเพิ่ม — แยกรายการ</button></div></div>`;
+          return `<div style="display:flex;gap:7px;"><button class="btn btn-ghost btn-sm" onclick="skipPoInbox('${esc(x.id)}')">ข้าม</button><button class="btn btn-success btn-sm" onclick="confirmPoInbox('${esc(x.id)}')">✓ ยืนยันต้นทุน + เข้า PM</button></div>`; })()}
       </div>
       <div class="po-fld">
         <div class="auto-f"><label>เลข job <span class="tagauto">อัตโนมัติ</span></label><input value="${esc(x.job)}" readonly></div>
@@ -2983,8 +2998,9 @@ function updatePoGp(id) {
 async function confirmPoInbox(id) {
   if (!isAdmin()) { alert('เฉพาะ Joe / นุ่น (ผู้ดูแลระบบ) เท่านั้นที่ยืนยัน PO ได้'); return; }
   const x = poInbox.find(i => i.id === id); if (!x) return;
-  const ex0 = findExistingProject(x);
-  if (ex0) { alert(`มีโปรเจกต์ ${ex0.code} อยู่แล้ว — สร้างซ้ำไม่ได้\nให้กด "ผูกกับโปรเจกต์นี้" หรือ "ข้าม" แทน`); renderPoInbox(); return; }
+  const same0 = projectWithPo(x);
+  if (same0) { alert(`PO ${x.poNo} บันทึกไปแล้วที่ ${same0.code} ${same0.name} — สร้างซ้ำไม่ได้\nให้กด "ข้าม"`); renderPoInbox(); return; }
+  const exs0 = projectsOfJob(x);
   const g = k => document.getElementById('pi-' + k + '-' + id).value.trim();
   const value = parseFloat(g('value')) || 0, costStr = g('cost'), owner = g('owner');
   if (!value) { alert('กรุณาใส่มูลค่า PO'); return; }
@@ -2997,26 +3013,27 @@ async function confirmPoInbox(id) {
   // ถามต้นทุนก่อนทุกครั้ง (Joe สั่ง 19 ก.ย. 2569)
   if (!confirm(`Job ${x.job} — ${g('client')}\n\nต้นทุน ${cost.toLocaleString('th-TH')} บาท ถูกต้องไหม?\nมูลค่า PO ${value.toLocaleString('th-TH')} บาท · GP ${gp}%\nที่มาของต้นทุน: ${x.costSource || 'กรอกเอง'}\n\nผู้รับผิดชอบ: ${owner}\nประเภท: ${type} · สถานะ: ${status} · เก็บเงิน: ${pay}\n\nกด OK = ยืนยันและบันทึกเข้าหน้าโปรเจกต์`)) return;
   if (+gp < 30 && !confirm(`⚠️ GP ${gp}% ต่ำกว่าพื้น 30%\nยืนยันบันทึกต่อไหม?`)) return;
+  if (exs0.length && !confirm(`job ${x.job} มีอยู่แล้ว ${exs0.length} รายการ:\n${exs0.map(p => '• ' + p.name + ' ' + (+p.budget || 0).toLocaleString('th-TH')).join('\n')}\n\nPO ${x.poNo} เป็น "PO ใบเพิ่ม" ของงานนี้ใช่ไหม?\nกด OK = สร้างแยกอีกรายการ ใช้เลขงานเดิม\n(ถ้าเป็น PO เดียวกับที่มีอยู่ ให้กด Cancel แล้วกดปุ่ม 🔗 แทน)`)) return;
   const pid = String(Date.now());
   const code = 'APY-' + (g('podate') || todayStr()).slice(0, 4) + '-' + x.job;
   const project = {
     code, name: (g('podate') || todayStr()).slice(0, 4) + '-' + x.job + ' ' + g('name'), type,
-    client: g('client'), contact: x.contact || '', budget: value, cost,
+    client: g('client'), contact: x.contact || '', budget: value, cost, poNo: String(x.poNo || '').trim(),
     start: g('podate') || todayStr(), end: g('end') || '', status, payment: pay, progress: status === 'เสร็จสมบูรณ์' ? 100 : 0, owner,
     note: ['PO ' + x.poNo + (x.poDate ? ' ลงวันที่ ' + x.poDate : ''), x.quoteNo ? 'ใบเสนอราคา ' + x.quoteNo : '', x.credit ? 'เครดิต ' + x.credit : '', x.delivery ? 'วันส่งมอบใน PO ' + x.delivery : '',
            'ต้นทุน ' + cost.toLocaleString('th-TH') + ' ยืนยันโดย ' + (currentUser ? currentUser.email : '') + ' ' + todayStr()].filter(Boolean).join(' · '),
   };
-  if (projects.some(p => p.code === code)) { alert(`มีโปรเจกต์ ${code} อยู่แล้ว — สร้างซ้ำไม่ได้\nให้กด "ผูกกับโปรเจกต์นี้" หรือ "ข้าม" แทน`); renderPoInbox(); return; }
   try {
     await db.collection('projects').doc(pid).set(project);
     await db.collection('po_inbox').doc(id).update({ status: 'confirmed', projectId: pid, costConfirmed: cost, valueConfirmed: value,
       owner, type, projectStatus: status, payment: pay, confirmedBy: currentUser ? currentUser.email : '', confirmedAt: new Date().toISOString() });
     // ผูกงานขายที่เลข job ตรงกัน (ถ้ามี)
     const sale = sales.find(s => String(s.job || '').trim() === String(x.job) && !s.projectId);
+    const saleDocId = sales.some(s => s.id === 'job' + x.job) ? 'prj_' + pid : 'job' + x.job;   // ห้ามเขียนทับงานขายเดิมของ job เดียวกัน
     if (sale) await db.collection('sales').doc(sale.id).update({ stage: 'ได้ PO', poDate: project.start, closedDate: todayStr(), projectId: pid, value, updatedAt: new Date().toISOString() });
-    else if (confirm(`ยังไม่มี job ${x.job} ในหน้างานขาย\nสร้างเป็น "ได้ PO" ให้เลยไหม? (เพื่อให้ยอด PO ตรงกับ Dashboard)\nที่มาของงานจะยังว่าง ให้ผู้ดูแลกรอกเอง`)) {
-      await db.collection('sales').doc('job' + x.job).set({ client: project.client, name: g('name'), job: x.job, stage: 'ได้ PO', source: '', value, quote: x.quoteNo || '', expiry: '', next: '', nextDate: '', lostReason: '', note: '', owner,
-        createdAt: new Date().toISOString(), createdBy: currentUser ? currentUser.email : '', updatedAt: new Date().toISOString(), poDate: project.start, closedDate: todayStr(), projectId: pid, askJoe: [], suggest: null }, { merge: true });
+    else if (confirm((exs0.length ? `PO ใบเพิ่มของ job ${x.job} ยังไม่มีในหน้างานขาย` : `ยังไม่มี job ${x.job} ในหน้างานขาย`) + `\nสร้างเป็น "ได้ PO" ให้เลยไหม? (เพื่อให้ยอด PO ตรงกับ Dashboard)\nที่มาของงานจะยังว่าง ให้ผู้ดูแลกรอกเอง`)) {
+      await db.collection('sales').doc(saleDocId).set({ client: project.client, name: g('name'), job: x.job, stage: 'ได้ PO', source: '', value, quote: x.quoteNo || '', expiry: '', next: '', nextDate: '', lostReason: '', note: '', owner,
+        createdAt: new Date().toISOString(), createdBy: currentUser ? currentUser.email : '', updatedAt: new Date().toISOString(), poDate: project.start, closedDate: todayStr(), projectId: pid, askJoe: [], suggest: null });
     }
     alert(`✅ บันทึก ${code} เข้าหน้าโปรเจกต์แล้ว` + (sale ? '\n(อัปเดตงานขายเป็น "ได้ PO" ให้ด้วย)' : ''));
   } catch (err) {
