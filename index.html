@@ -754,6 +754,7 @@
         ตัวเลขในหน้าโปรเจกต์/Dashboard จึงยังเป็น "ยอดที่ได้งานจริง" เหมือนเดิม
       </div>
       <div id="sales-error" class="s-note s-note-blue" style="display:none;"></div>
+      <div id="sales-ask-banner" class="s-note" style="display:none;background:#fff7ed;border-color:#fed7aa;border-left-color:#f97316;color:#9a3412;"></div>
       <div class="s-kpis" id="sales-kpis"></div>
       <div class="card" style="border-left:4px solid var(--danger);margin-bottom:16px;">
         <div class="card-header"><div><div class="card-title">⚠️ ต้องตามวันนี้ และเลยกำหนดแล้ว</div><div class="s-sub">หน้าจอที่ควรเปิดทุกเช้า — นับจากช่อง "วันที่ต้องตาม" และ "ใบหมดอายุ"</div></div></div>
@@ -1007,6 +1008,8 @@
       <button class="btn-close" onclick="closeModal('modal-sale')">✕</button>
     </div>
     <div class="modal-body">
+      <div id="s-ask-box" class="s-note" style="display:none;background:#fff7ed;border-color:#fed7aa;border-left-color:#f97316;color:#9a3412;"></div>
+      <div id="s-auto-box" class="s-note s-note-blue" style="display:none;"></div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">ลูกค้า / บริษัท *</label><input class="form-control" id="s-client" placeholder="ชื่อบริษัทลูกค้า"></div>
         <div class="form-group"><label class="form-label">เลข job</label><input class="form-control" id="s-job" placeholder="เช่น 231"></div>
@@ -2471,6 +2474,10 @@ const SALE_STAGES = [
   { key: 'แพ้งาน',    cls: 'b-loss',  color: '#ef4444' },
 ];
 const SALE_OPEN = ['Lead', 'ทำราคา', 'ส่งใบแล้ว', 'รอ PO'];
+function isSaleOpen(s) { return s.stage !== 'ได้ PO' && s.stage !== 'แพ้งาน'; }
+const ASK = '<span class="tagneed">ยังไม่กรอก</span>';
+/** งานนี้ยังมีช่องที่ต้องได้คำตอบจาก Joe ไหม (Joe สั่ง 19 ก.ย. 2569: สิ่งที่ต้องได้จาก Joe ให้ถามทุกครั้ง) */
+function saleNeedsJoe(s) { return !s.owner || !s.source || !s.stage || (s.askJoe && s.askJoe.length) || (isSaleOpen(s) && !s.nextDate); }
 const SALE_SOURCES = [
   { key: 'ลูกค้าโทรเข้า', color: '#1a3c6e' },
   { key: 'เว็บไซต์',      color: '#f59e0b' },
@@ -2500,6 +2507,7 @@ function fmtMillion(n) {
   return Number(n).toLocaleString('th-TH');
 }
 function stageBadge(stage) {
+  if (!stage) return ASK;
   const st = SALE_STAGES.find(x => x.key === stage) || SALE_STAGES[0];
   return `<span class="badge ${st.cls}">${esc(st.key)}</span>`;
 }
@@ -2512,7 +2520,8 @@ function dueBadge(dateStr) {
 }
 function shortName(full) {
   // แสดงชื่อต้น (ชื่อเต็มยังเก็บไว้ในข้อมูลเพื่อใช้กับกฎสิทธิ์)
-  return esc((full || '—').split(' ')[0]);
+  if (!full) return ASK;
+  return esc(full.split(' ')[0]);
 }
 
 function saleActionBtn(s) {
@@ -2531,7 +2540,7 @@ function renderSales() {
   errEl.style.display = salesError ? 'block' : 'none';
   errEl.textContent = salesError;
 
-  const open = sales.filter(s => SALE_OPEN.includes(s.stage));
+  const open = sales.filter(s => isSaleOpen(s));
   const openVal = open.reduce((a, s) => a + (+s.value || 0), 0);
   const ym = todayStr().slice(0, 7);
   const wonMonth = sales.filter(s => s.stage === 'ได้ PO' && (s.poDate || '').slice(0, 7) === ym);
@@ -2541,6 +2550,10 @@ function renderSales() {
   const rate = (won + lost) ? Math.round(won * 100 / (won + lost)) : null;
   const expiring = sales.filter(s => ['ส่งใบแล้ว', 'รอ PO'].includes(s.stage) && s.expiry && daysFromToday(s.expiry) <= 7);
 
+  const askN = sales.filter(saleNeedsJoe).length, sugN = 0;
+  const ab = document.getElementById('sales-ask-banner');
+  ab.style.display = (askN || sugN) ? 'block' : 'none';
+  ab.innerHTML = `${askN ? `⚠️ <b>${askN} งานข้อมูลยังไม่ครบ</b> (ช่องที่มีป้าย ${ASK}) — ผู้ดูแลงานกด "แก้ไข" แล้วกรอกให้ครบ — <a href="#" onclick="document.getElementById('sales-f-stage').value='__ask';renderSales();document.getElementById('sales-table').scrollIntoView({behavior:'smooth'});return false;">ดูรายการ</a>` : ''}${askN && sugN ? ' · ' : ''}${sugN ? `📥 <b>${sugN} งานมีอัปเดตจากการสแกน Drive</b> รอยืนยัน — <a href="#" onclick="document.getElementById('sales-f-stage').value='__sug';renderSales();document.getElementById('sales-table').scrollIntoView({behavior:'smooth'});return false;">ดูรายการ</a>` : ''}`;
   kpiEl.innerHTML = `
     <div class="stat-card"><div class="stat-icon" style="background:#dbeafe;color:#1e40af;">฿</div>
       <div><div class="stat-value">${fmtMillion(openVal)}</div><div class="stat-label">Pipeline ที่ยังเปิดอยู่</div><div class="stat-change" style="color:var(--text-muted);">${open.length} รายการ</div></div></div>
@@ -2589,21 +2602,21 @@ function renderSales() {
   // ตัวกรอง
   const fs = document.getElementById('sales-f-stage'), fo = document.getElementById('sales-f-owner');
   const vs = fs.value, vo = fo.value;
-  fs.innerHTML = '<option value="">ทุกขั้นตอน</option>' + SALE_STAGES.map(st => `<option ${st.key === vs ? 'selected' : ''}>${esc(st.key)}</option>`).join('');
+  fs.innerHTML = '<option value="">ทุกขั้นตอน</option>' + `<option value="__ask" ${vs === '__ask' ? 'selected' : ''}>⚠️ ข้อมูลยังไม่ครบ</option>` + SALE_STAGES.map(st => `<option ${st.key === vs ? 'selected' : ''}>${esc(st.key)}</option>`).join('');
   const owners = [...new Set(sales.map(s => s.owner).filter(Boolean))];
   fo.innerHTML = '<option value="">ทุกผู้ดูแล</option>' + owners.map(o => `<option value="${esc(o)}" ${o === vo ? 'selected' : ''}>${esc(o)}</option>`).join('');
 
-  const order = k => SALE_STAGES.findIndex(st => st.key === k);
-  const rows = sales.filter(s => (!vs || s.stage === vs) && (!vo || s.owner === vo))
+  const order = k => k ? SALE_STAGES.findIndex(st => st.key === k) : -1;
+  const rows = sales.filter(s => (!vs || (vs === '__ask' ? saleNeedsJoe(s) : s.stage === vs)) && (!vo || s.owner === vo))
     .sort((a, b) => (order(a.stage) - order(b.stage)) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
 
   document.getElementById('sales-table').innerHTML = rows.length ? `
     <table><thead><tr><th>ลูกค้า / งาน</th><th>เลข job</th><th>ขั้นตอน</th><th>ที่มา</th><th>มูลค่า</th><th>ใบหมดอายุ</th><th>ผู้ดูแล</th><th></th></tr></thead><tbody>
     ${rows.map(s => {
-      const exp = (s.expiry && SALE_OPEN.includes(s.stage) && daysFromToday(s.expiry) < 0)
-        ? '<b style="color:var(--danger);">เลยแล้ว</b>' : (s.expiry && SALE_OPEN.includes(s.stage) ? fmtDate(s.expiry) : '—');
+      const exp = (s.expiry && isSaleOpen(s) && daysFromToday(s.expiry) < 0)
+        ? '<b style="color:var(--danger);">เลยแล้ว</b>' : (s.expiry && isSaleOpen(s) ? fmtDate(s.expiry) : '—');
       return `<tr style="${s.stage === 'ได้ PO' ? 'background:#f0fdf4;' : ''}"><td><b>${esc(s.client)}</b><div class="s-sub">${esc(s.name)}</div></td>
-        <td>${esc(s.job || '—')}</td><td>${stageBadge(s.stage)}</td><td>${esc(s.source || '—')}</td>
+        <td>${esc(s.job || '—')}</td><td>${stageBadge(s.stage)}</td><td>${s.source ? esc(s.source) : ASK}</td>
         <td class="s-money">${fmtBaht(s.value)}</td><td>${exp}</td><td>${shortName(s.owner)}</td>
         <td style="white-space:nowrap;">${saleActionBtn(s)}${s.stage === 'ได้ PO' ? ` <button class="btn btn-ghost btn-sm" onclick="editSale('${esc(s.id)}')">แก้ไข</button>` : ''}</td></tr>`;
     }).join('')}
@@ -2611,8 +2624,8 @@ function renderSales() {
 }
 
 function fillSaleSelects(stage, source, owner) {
-  document.getElementById('s-stage').innerHTML = SALE_STAGES.map(st => `<option ${st.key === stage ? 'selected' : ''}>${esc(st.key)}</option>`).join('');
-  document.getElementById('s-source').innerHTML = SALE_SOURCES.map(x => `<option ${x.key === source ? 'selected' : ''}>${esc(x.key)}</option>`).join('');
+  document.getElementById('s-stage').innerHTML = '<option value="">-- เลือกขั้นตอน --</option>' + SALE_STAGES.map(st => `<option ${st.key === stage ? 'selected' : ''}>${esc(st.key)}</option>`).join('');
+  document.getElementById('s-source').innerHTML = '<option value="">-- เลือกที่มา --</option>' + SALE_SOURCES.map(x => `<option ${x.key === source ? 'selected' : ''}>${esc(x.key)}</option>`).join('');
   const sel = document.getElementById('s-owner');
   sel.innerHTML = '<option value="">-- เลือกผู้ดูแล --</option>' +
     members.map(m => `<option value="${esc(m.name)}" ${m.name === owner ? 'selected' : ''}>${esc(m.name)}${m.role ? ' (' + esc(m.role) + ')' : ''}</option>`).join('');
@@ -2628,7 +2641,9 @@ function openNewSaleModal() {
   editingSaleId = null;
   document.getElementById('modal-sale-title').textContent = '🆕 เพิ่มงานขาย';
   ['s-client','s-job','s-name','s-value','s-quote','s-expiry','s-next','s-nextdate','s-lost','s-note'].forEach(id => document.getElementById(id).value = '');
-  fillSaleSelects('Lead', 'ลูกค้าโทรเข้า', isSales() ? myRole.name : (myRole.name || ''));
+  fillSaleSelects('', '', isSales() ? myRole.name : '');
+  document.getElementById('s-ask-box').style.display = 'none';
+  document.getElementById('s-auto-box').style.display = 'none';
   document.getElementById('s-delete-btn').style.display = 'none';
   openModal('modal-sale');
 }
@@ -2642,7 +2657,17 @@ function editSale(id) {
   const map = { 's-client': 'client', 's-job': 'job', 's-name': 'name', 's-value': 'value', 's-quote': 'quote', 's-expiry': 'expiry',
                 's-next': 'next', 's-nextdate': 'nextDate', 's-lost': 'lostReason', 's-note': 'note' };
   Object.keys(map).forEach(k => document.getElementById(k).value = s[map[k]] || '');
-  fillSaleSelects(s.stage || 'Lead', s.source || 'อื่นๆ', s.owner || '');
+  fillSaleSelects(s.stage || '', s.source || '', s.owner || '');
+  const asks = (s.askJoe || []).slice();
+  if (!s.owner) asks.unshift('ผู้ดูแล (Sales) คือใคร');
+  if (!s.source) asks.unshift('ที่มาของงาน');
+  if (!s.stage) asks.unshift('ขั้นตอนตอนนี้');
+  if (isSaleOpen(s) && !s.nextDate) asks.push('ต้องทำอะไรถัดไป + วันที่ต้องตาม');
+  const ab = document.getElementById('s-ask-box'), au = document.getElementById('s-auto-box');
+  ab.style.display = asks.length ? 'block' : 'none';
+  ab.innerHTML = '<b>ยังต้องกรอก / ต้องตอบ:</b><br>• ' + asks.map(esc).join('<br>• ');
+  au.style.display = s.autoNote ? 'block' : 'none';
+  au.innerHTML = '<b>ข้อมูลที่ระบบกรอกให้จากเอกสาร:</b> ' + esc(s.autoNote || '');
   document.getElementById('s-delete-btn').style.display = isAdmin() ? 'inline-flex' : 'none';
   openModal('modal-sale');
 }
@@ -2654,7 +2679,8 @@ function saveSale() {
   let owner = document.getElementById('s-owner').value;
   if (isSales()) owner = myRole.name;
   if (!isAdmin() && !isSales()) { guardEdit('', 'การบันทึก'); return; }
-  if (!owner) { alert('กรุณาเลือกผู้ดูแล'); return; }
+  const miss = [!document.getElementById('s-stage').value && 'ขั้นตอน', !document.getElementById('s-source').value && 'ที่มาของงาน', !owner && 'ผู้ดูแล'].filter(Boolean);
+  if (miss.length) { alert('ยังไม่ได้เลือก: ' + miss.join(' · ') + '\nช่องเหล่านี้ระบบไม่เลือกให้ ต้องเลือกเองทุกครั้ง'); return; }
   const prev = editingSaleId ? (sales.find(x => String(x.id) === String(editingSaleId)) || {}) : {};
   const stage = document.getElementById('s-stage').value;
   const data = {
@@ -2671,6 +2697,9 @@ function saveSale() {
     poDate: stage === 'ได้ PO' ? (prev.stage === 'ได้ PO' && prev.poDate ? prev.poDate : todayStr()) : '',
     closedDate: (stage === 'ได้ PO' || stage === 'แพ้งาน') ? (prev.closedDate && prev.stage === stage ? prev.closedDate : todayStr()) : '',
     projectId: prev.projectId || '',
+    // เก็บข้อมูลที่มาจากการสแกนไว้ · คำถามถือว่าตอบแล้วเมื่อบันทึก
+    folder: prev.folder || '', folderId: prev.folderId || '', quoteFile: prev.quoteFile || '', quoteDate: prev.quoteDate || '',
+    autoNote: prev.autoNote || '', askJoe: [], suggest: null,
   };
   const ref = editingSaleId ? db.collection('sales').doc(String(editingSaleId)) : db.collection('sales').doc();
   ref.set(data).then(() => {
@@ -2684,6 +2713,21 @@ function saveSale() {
       ? 'บันทึกไม่ได้ — ไม่มีสิทธิ์ (หรือยังไม่ได้ publish กฎ Firestore ชุดใหม่)'
       : 'บันทึกไม่สำเร็จ: ' + (err && err.message));
   });
+}
+
+// การสแกน Drive เสนอให้อัปเดต (เช่น วงเล็บท้ายชื่อโฟลเดอร์เปลี่ยน / มีใบเสนอราคาฉบับใหม่) — ต้องยืนยันก่อนเสมอ
+const SALE_FIELD_LABEL = { stage: 'ขั้นตอน', value: 'มูลค่า', quote: 'เลขใบเสนอราคา', expiry: 'ใบหมดอายุ', quoteDate: 'วันที่ใบ', name: 'ชื่องาน', client: 'ลูกค้า' };
+function reviewSaleSuggest(id) {
+  const s = sales.find(x => String(x.id) === String(id)); if (!s || !s.suggest) return;
+  if (!guardEdit(s.owner, 'งานขายนี้')) return;
+  const ch = s.suggest.changes || {};
+  const lines = Object.keys(ch).map(k => `• ${SALE_FIELD_LABEL[k] || k}: ${s[k] || '—'} → ${ch[k]}`);
+  const msg = `${s.client} — ${s.name}\n\nการสแกน Drive เสนอให้อัปเดต:\n${lines.join('\n')}\n\nเหตุผล: ${s.suggest.reason || '-'}\n\nกด OK = ใช้ค่าใหม่ · Cancel = ไม่ใช้ (ทิ้งข้อเสนอนี้)`;
+  const upd = confirm(msg) ? Object.assign({}, ch) : {};
+  if (upd.stage === 'ได้ PO' && !s.poDate) upd.poDate = todayStr();
+  if ((upd.stage === 'ได้ PO' || upd.stage === 'แพ้งาน')) upd.closedDate = todayStr();
+  upd.suggest = null; upd.updatedAt = new Date().toISOString();
+  db.collection('sales').doc(String(id)).update(upd).catch(err => alert('บันทึกไม่สำเร็จ: ' + (err && err.message)));
 }
 
 function deleteSale(id) {
