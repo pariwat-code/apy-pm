@@ -802,6 +802,11 @@
         <div class="card-header"><div><div class="card-title" id="po-inbox-title">PO ที่รอยืนยัน</div><div class="s-sub" id="po-inbox-sub"></div></div></div>
         <div class="card-body" id="po-inbox-list"></div>
       </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><div><div class="card-title" id="cost-inbox-title">ต้นทุนจริงรอยืนยัน</div>
+          <div class="s-sub">อ่านจากไฟล์ของนุ่นในโฟลเดอร์ <code>3. Output / ต้นทุน &lt;job&gt;</code> (แถว "ซื้อจริง") · ระบบไม่บันทึกเอง ต้องกดยืนยัน · PO ที่ไม่มีไฟล์ต้นทุน (เช่น ค่าแรง) ให้กรอกต้นทุนจริงในหน้าโปรเจกต์เอง</div></div></div>
+        <div class="card-body" id="cost-inbox-list"></div>
+      </div>
       <div class="card">
         <div class="card-header"><div class="card-title">ประวัติล่าสุด</div></div>
         <div class="table-wrapper" id="po-inbox-history"></div>
@@ -1258,7 +1263,7 @@ function guardEdit(ownerName, what) {
 const ROLE_LABEL = { admin: 'แก้ไขได้ทั้งหมด', viewer: 'ดูอย่างเดียว',
                      sales: 'แก้ได้เฉพาะงานของตัวเอง', none: 'ยังไม่ได้กำหนดสิทธิ์' };
 
-const APP_VERSION = '2026-09-19g';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
+const APP_VERSION = '2026-09-19h';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
 function applyRoleToUI() {
   document.body.setAttribute('data-role', myRole.level);
   const nm = document.getElementById('sb-user-name'), rl = document.getElementById('sb-user-role');
@@ -2932,7 +2937,7 @@ function projectWithPo(x) {
   const no = String(x.poNo || '').trim(); if (!no) return null;
   const p1 = projects.find(p => String(p.poNo || '').trim() === no || String(p.note || '').includes('PO ' + no));
   if (p1) return p1;
-  const done = poInbox.find(i => i.id !== x.id && i.status === 'confirmed' && String(i.poNo || '').trim() === no && i.projectId);
+  const done = poInbox.find(i => i.id !== x.id && i.kind !== 'cost' && i.status === 'confirmed' && String(i.poNo || '').trim() === no && i.projectId);
   return done ? (projects.find(p => String(p.id) === String(done.projectId)) || null) : null;
 }
 function renderPoInbox() {
@@ -2942,12 +2947,14 @@ function renderPoInbox() {
   errEl.style.display = poInboxError ? 'block' : 'none';
   errEl.textContent = poInboxError;
 
-  const pending = poInbox.filter(x => x.status === 'pending').sort((a, b) => String(a.job).localeCompare(String(b.job)));
+  const poCards = poInbox.filter(x => x.kind !== 'cost');
+  const pending = poCards.filter(x => x.status === 'pending').sort((a, b) => String(a.job).localeCompare(String(b.job)));
   const pill = document.getElementById('po-inbox-pill');
-  pill.style.display = pending.length ? 'inline-block' : 'none';
-  pill.textContent = pending.length;
+  const costPending = poInbox.filter(x => x.kind === 'cost' && x.status === 'pending').length;
+  pill.style.display = (pending.length + costPending) ? 'inline-block' : 'none';
+  pill.textContent = pending.length + costPending;
   document.getElementById('po-inbox-title').textContent = `PO ที่รอยืนยัน — ${pending.length} รายการ`;
-  const last = poInbox.map(x => x.foundAt || '').sort().pop();
+  const last = poCards.map(x => x.foundAt || '').sort().pop();
   document.getElementById('po-inbox-sub').textContent = last ? 'สแกนเจอล่าสุด: ' + new Date(last).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : 'ยังไม่มีผลสแกน';
 
   listEl.innerHTML = pending.length ? pending.map(x => {
@@ -2991,12 +2998,13 @@ function renderPoInbox() {
     </div>`;
   }).join('') : '<div class="s-empty">ไม่มี PO ที่รอยืนยัน 👍</div>';
 
-  const hist = poInbox.filter(x => x.status !== 'pending').sort((a, b) => String(b.confirmedAt || b.foundAt || '').localeCompare(String(a.confirmedAt || a.foundAt || ''))).slice(0, 15);
+  const hist = poCards.filter(x => x.status !== 'pending').sort((a, b) => String(b.confirmedAt || b.foundAt || '').localeCompare(String(a.confirmedAt || a.foundAt || ''))).slice(0, 15);
   document.getElementById('po-inbox-history').innerHTML = hist.length ? `<table><thead><tr><th>job</th><th>ลูกค้า</th><th>เลข PO</th><th>มูลค่า</th><th>ต้นทุนที่ยืนยัน</th><th>ผล</th><th>โดย</th></tr></thead><tbody>
     ${hist.map(x => `<tr><td>${esc(x.job)}</td><td>${esc(x.client)}</td><td>${esc(x.poNo)}</td><td class="s-money">${fmtBaht(x.value)}</td>
       <td class="s-money">${x.status === 'confirmed' ? fmtBaht(x.costConfirmed) : '—'}</td>
       <td>${x.status === 'confirmed' ? (x.linked ? '<span class="badge b-wait">ผูกกับโปรเจกต์เดิม</span>' : '<span class="badge b-po">เข้า PM แล้ว</span>') : '<span class="badge b-loss">ข้าม</span>'}</td><td>${esc((x.confirmedBy || '').split('@')[0])}</td></tr>`).join('')}
     </tbody></table>` : '<div class="s-empty">ยังไม่มีประวัติ</div>';
+  renderCostInbox();
 }
 
 function updatePoGp(id) {
@@ -3066,6 +3074,81 @@ function skipPoInbox(id) {
   if (!isAdmin()) { alert('เฉพาะผู้ดูแลระบบเท่านั้น'); return; }
   const x = poInbox.find(i => i.id === id); if (!x) return;
   const why = prompt(`ข้าม PO ${x.poNo} (job ${x.job})?\nใส่เหตุผลสั้นๆ (เช่น บันทึกไว้แล้ว / ไม่ใช่ PO):`, '');
+  if (why === null) return;
+  db.collection('po_inbox').doc(id).update({ status: 'skipped', skipReason: why, confirmedBy: currentUser ? currentUser.email : '', confirmedAt: new Date().toISOString() })
+    .catch(err => alert('บันทึกไม่สำเร็จ: ' + (err && err.message)));
+}
+
+// ============================================================
+//  ต้นทุนจริงรอยืนยัน (19 ก.ย. 2569) — Claude อ่านไฟล์ต้นทุนของนุ่น (3. Output / ต้นทุน <job>)
+//  เขียนการ์ด kind:'cost' ลง po_inbox · admin เลือกโปรเจกต์ + ยืนยันตัวเลข → บันทึก actualCost (+ เลข PO ถ้ายังว่าง)
+//  ไม่แน่ใจว่าเป็นของโปรเจกต์ไหน → ระบบไม่เลือกให้ (Joe: ไม่แน่ใจ ให้ถามทุกครั้ง)
+// ============================================================
+function costCardMatch(x) {
+  const exs = projectsOfJob({ job: x.job, poDate: x.year ? x.year + '-01-01' : x.poDate });
+  const no = String(x.poNo || '').trim();
+  const byPo = no ? exs.filter(p => String(p.poNo || '').trim() === no) : [];
+  if (byPo.length === 1) return { exs, pick: byPo[0], why: 'เลข PO ตรง' };
+  const byPrice = x.sellPrice ? exs.filter(p => (+p.budget || 0) === (+x.sellPrice || 0)) : [];
+  if (byPrice.length === 1) return { exs, pick: byPrice[0], why: 'ราคาขายตรง' };
+  if (exs.length === 1 && !x.sellPrice) return { exs, pick: null, why: '' };
+  return { exs, pick: null, why: '' };
+}
+function renderCostInbox() {
+  const el = document.getElementById('cost-inbox-list'); if (!el) return;
+  const list = poInbox.filter(x => x.kind === 'cost' && x.status === 'pending').sort((a, b) => String(a.job).localeCompare(String(b.job)));
+  document.getElementById('cost-inbox-title').textContent = `ต้นทุนจริงรอยืนยัน — ${list.length} รายการ`;
+  el.innerHTML = list.length ? list.map(x => {
+    const m = costCardMatch(x);
+    const opts = m.exs.map(p => `<option value="${esc(p.id)}" ${m.pick && m.pick.id === p.id ? 'selected' : ''}>${esc(p.name)} · ${fmtBaht(p.budget)}${p.poNo ? ' · PO ' + esc(p.poNo) : ''}${hasActual(p) ? ' · มีต้นทุนจริงแล้ว ' + fmtBaht(p.actualCost) : ''}</option>`).join('');
+    const warns = (x.warnings || []).filter(Boolean);
+    const gp = x.sellPrice && x.actual !== '' && x.actual != null ? ((x.sellPrice - x.actual) * 100 / x.sellPrice).toFixed(1) + '%' : '—';
+    return `<div class="po-item" id="cost-${esc(x.id)}">
+      <div class="po-top">
+        <div><span class="badge" style="background:#dcfce7;color:#166534;">ต้นทุนจริง</span> <b style="font-size:14px;margin-left:5px;">job ${esc(x.job)}${x.poNo ? ' · PO ' + esc(x.poNo) : ''}${x.poLabel ? ' (' + esc(x.poLabel) + ')' : ''}</b>
+          <div>${x.fileUrl ? `<a class="po-file" href="${esc(x.fileUrl)}" target="_blank" rel="noopener">${esc(x.folder || '')} / ${esc(x.fileName)} ↗</a>` : `<span class="po-file">${esc(x.fileName || '')}</span>`}</div></div>
+        <div style="display:flex;gap:7px;"><button class="btn btn-ghost btn-sm" onclick="skipCostInbox('${esc(x.id)}')">ข้าม</button><button class="btn btn-success btn-sm" onclick="confirmCostInbox('${esc(x.id)}')">✓ ยืนยันต้นทุนจริง</button></div>
+      </div>
+      <div class="po-fld">
+        <div class="auto-f"><label>ราคาขายในไฟล์ <span class="tagauto">อ่านจากไฟล์</span></label><input value="${esc(x.sellPrice === '' || x.sellPrice == null ? '' : fmtBaht(x.sellPrice))}" readonly></div>
+        <div class="auto-f"><label>เบิกเงินสดย่อย <span class="tagauto">อ่านจากไฟล์</span></label><input value="${esc(x.advance === '' || x.advance == null ? '' : fmtBaht(x.advance))}" readonly></div>
+        <div class="need"><label>ต้นทุนจริง "ซื้อจริง" (บาท) <span class="tagneed">ยืนยัน</span></label><input id="ci-actual-${esc(x.id)}" type="number" step="0.01" value="${esc(x.actual)}"><div class="po-src">GP ${gp}</div></div>
+        <div class="need" style="grid-column:span 2;"><label>เป็นของโปรเจกต์ไหน <span class="tagneed">${m.pick ? 'ระบบจับคู่: ' + esc(m.why) + ' — ตรวจอีกครั้ง' : 'ถาม Joe'}</span></label>
+          <select id="ci-proj-${esc(x.id)}"><option value="">-- เลือก --</option>${opts}</select>${m.exs.length ? '' : '<div class="po-src">⚠️ ยังไม่มีโปรเจกต์ของ job นี้</div>'}</div>
+      </div>
+      ${warns.length ? `<div class="po-warn">⚠️ ${warns.map(esc).join('<br>⚠️ ')}</div>` : ''}
+    </div>`;
+  }).join('') : '<div class="s-empty">ไม่มีต้นทุนจริงที่รอยืนยัน 👍</div>';
+}
+async function confirmCostInbox(id) {
+  if (!isAdmin()) { alert('เฉพาะ Joe / นุ่น (ผู้ดูแลระบบ) เท่านั้น'); return; }
+  const x = poInbox.find(i => i.id === id); if (!x) return;
+  const pid = document.getElementById('ci-proj-' + id).value;
+  const aStr = document.getElementById('ci-actual-' + id).value.trim();
+  if (!pid) { alert('กรุณาเลือกว่าเป็นของโปรเจกต์ไหน'); return; }
+  if (aStr === '') { alert('กรุณาใส่ต้นทุนจริง'); return; }
+  const p = projects.find(q => String(q.id) === String(pid)); if (!p) return;
+  const actual = Math.round((parseFloat(aStr) || 0) * 100) / 100;
+  const no = String(x.poNo || '').trim();
+  const warn = [];
+  if (x.sellPrice && (+p.budget || 0) !== (+x.sellPrice || 0)) warn.push(`ราคาขาย: ไฟล์ ${fmtBaht(x.sellPrice)} · โปรเจกต์ ${fmtBaht(p.budget)}`);
+  if (no && p.poNo && String(p.poNo).trim() !== no) warn.push(`เลข PO: ไฟล์ ${no} · โปรเจกต์ ${p.poNo}`);
+  if (hasActual(p)) warn.push(`โปรเจกต์นี้มีต้นทุนจริงแล้ว ${fmtBaht(p.actualCost)} → จะแทนด้วย ${fmtBaht(actual)}`);
+  const dupPo = no && !p.poNo && projects.find(q => q.id !== p.id && String(q.poNo || '').trim() === no);
+  if (dupPo) { alert(`เลข PO ${no} อยู่ที่ ${dupPo.code} ${dupPo.name} แล้ว — ตรวจว่าเลือกโปรเจกต์ถูกไหม`); return; }
+  const gp = p.budget ? ((p.budget - actual) * 100 / p.budget).toFixed(1) : '—';
+  if (!confirm(`${p.code} ${p.name}\n\nต้นทุนจริง ${actual.toLocaleString('th-TH')} บาท ถูกต้องไหม?\nราคาขาย ${(+p.budget || 0).toLocaleString('th-TH')} · GP จริง ${gp}%` + (no && !p.poNo ? `\nจะใส่เลข PO ${no} ให้โปรเจกต์นี้ด้วย` : '') + (warn.length ? `\n\n⚠️ ${warn.join('\n⚠️ ')}` : '') + `\n\nกด OK = บันทึก`)) return;
+  const upd = { actualCost: actual, actualCostNote: 'ไฟล์ต้นทุน ' + (x.fileName || '') + (no ? ' · PO ' + no : ''), actualCostAt: new Date().toISOString(), actualCostBy: currentUser ? currentUser.email : '' };
+  if (no && !p.poNo) upd.poNo = no;
+  try {
+    await db.collection('projects').doc(String(p.id)).update(upd);
+    await db.collection('po_inbox').doc(id).update({ status: 'confirmed', projectId: String(p.id), actualConfirmed: actual, confirmedBy: currentUser ? currentUser.email : '', confirmedAt: new Date().toISOString() });
+  } catch (err) { alert('บันทึกไม่สำเร็จ: ' + (err && (err.code === 'permission-denied' ? 'ไม่มีสิทธิ์' : err.message))); }
+}
+function skipCostInbox(id) {
+  if (!isAdmin()) { alert('เฉพาะผู้ดูแลระบบเท่านั้น'); return; }
+  const x = poInbox.find(i => i.id === id); if (!x) return;
+  const why = prompt(`ข้ามไฟล์ต้นทุน job ${x.job} ${x.fileName || ''}?\nใส่เหตุผลสั้นๆ:`, '');
   if (why === null) return;
   db.collection('po_inbox').doc(id).update({ status: 'skipped', skipReason: why, confirmedBy: currentUser ? currentUser.email : '', confirmedAt: new Date().toISOString() })
     .catch(err => alert('บันทึกไม่สำเร็จ: ' + (err && err.message)));
