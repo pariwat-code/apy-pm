@@ -606,6 +606,7 @@
             <span class="card-title">📈 มูลค่าโปรเจกต์รายเดือน (฿)</span>
           </div>
           <div class="card-body" style="padding-bottom:12px;">
+            <div id="dash-xcheck" class="s-note" style="display:none;margin-bottom:10px;background:#fef2f2;border-color:#fecaca;border-left-color:#ef4444;color:#991b1b;"></div>
             <div class="bar-chart" id="monthly-chart"></div>
           </div>
         </div>
@@ -765,6 +766,10 @@
           <div class="card-body" id="sales-funnel"></div></div>
         <div class="card"><div class="card-header"><div><div class="card-title">แหล่งที่มาของงาน</div><div class="s-sub">นับทุกรายการในหน้านี้</div></div></div>
           <div class="card-body" id="sales-sources"></div></div>
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><div><div class="card-title" id="sales-xcheck-title">ตรวจยอด PO กับ Dashboard</div><div class="s-sub">เทียบทุกเดือน: มูลค่าโปรเจกต์ตามวันเริ่ม (Dashboard) กับงาน "ได้ PO" ตามวันที่ PO (หน้านี้) — ต้องตรงกันเสมอ</div></div></div>
+        <div class="table-wrapper" id="sales-xcheck"></div>
       </div>
       <div class="card">
         <div class="card-header"><div class="card-title">รายการงานขายทั้งหมด</div>
@@ -1539,6 +1544,7 @@ function renderAll() {
   renderBudget();
   renderSales();
   renderPoInbox();
+  renderPoCrossCheck();
 }
 
 // ============================================================
@@ -2475,9 +2481,53 @@ const SALE_STAGES = [
 ];
 const SALE_OPEN = ['Lead', 'ทำราคา', 'ส่งใบแล้ว', 'รอ PO'];
 function isSaleOpen(s) { return s.stage !== 'ได้ PO' && s.stage !== 'แพ้งาน'; }
+/** งาน 'ได้ PO' ที่คัดลอกจากหน้าโปรเจกต์ (ก่อนเริ่มใช้ pipeline ก.ย. 2569) — ใช้เพื่อให้ยอด PO รายเดือนตรง Dashboard เท่านั้น */
+function isBackfill(s) { return !!s.backfill; }
+function pipe() { return sales.filter(s => !isBackfill(s)); }
+
+// ============================================================
+//  Cross-check ยอด PO รายเดือน: หน้างานขาย (ได้ PO ตาม poDate) ต้องตรงกับ Dashboard (โปรเจกต์ตามวันเริ่ม)
+//  Joe สั่ง 19 ก.ย. 2569 — "ต้อง cross check ตรงกันเสมอ"
+// ============================================================
+function projJob(p) { const m = String(p.code || '').match(/APY-\d{4}-(\d{3})/); return m ? m[1] : ''; }
+function poCrossCheck() {
+  const won = sales.filter(s => s.stage === 'ได้ PO');
+  const byPid = {}; won.forEach(s => { if (s.projectId) byPid[String(s.projectId)] = s; });
+  const used = new Set(); const months = {};
+  const M = k => (months[k] = months[k] || { dash: 0, dashN: 0, sale: 0, saleN: 0, issues: [] });
+  projects.forEach(p => { if (!p.start) return; const m = M(p.start.slice(0, 7)); m.dash += (+p.budget || 0); m.dashN++; });
+  won.forEach(s => { const m = M((s.poDate || 'ไม่มีวันที่').slice(0, 7)); m.sale += (+s.value || 0); m.saleN++; });
+  projects.forEach(p => {
+    if (!p.start) return;
+    const k = p.start.slice(0, 7);
+    let s = byPid[String(p.id)];
+    if (!s) { const j = projJob(p); s = won.find(x => !used.has(x.id) && !x.projectId && j && String(x.job) === j); }
+    if (!s) { M(k).issues.push(`${p.code} ${p.client || ''} ${fmtBaht(p.budget)} — มีในโปรเจกต์ แต่ไม่มีงาน "ได้ PO" ในหน้างานขาย`); return; }
+    used.add(s.id);
+    const sk = (s.poDate || '').slice(0, 7);
+    if (sk !== k) M(k).issues.push(`${p.code} — เดือนไม่ตรง: โปรเจกต์ ${k} · งานขาย ${sk || 'ไม่มีวันที่ PO'}`);
+    if ((+s.value || 0) !== (+p.budget || 0)) M(k).issues.push(`${p.code} — มูลค่าไม่ตรง: โปรเจกต์ ${fmtBaht(p.budget)} · งานขาย ${fmtBaht(s.value)}`);
+  });
+  won.forEach(s => { if (!used.has(s.id)) M((s.poDate || 'ไม่มีวันที่').slice(0, 7)).issues.push(`job ${s.job || '?'} ${s.client || ''} ${fmtBaht(s.value)} — "ได้ PO" ในหน้างานขาย แต่ไม่มีในหน้าโปรเจกต์`); });
+  return Object.keys(months).sort().map(k => ({ month: k, ...months[k], ok: months[k].dash === months[k].sale && months[k].dashN === months[k].saleN && !months[k].issues.length }));
+}
+const TH_MONTH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+function monthLabel(k) { const [y, m] = k.split('-'); return m ? TH_MONTH[+m - 1] + ' ' + (String(+y + 543).slice(2)) : k; }
+function renderPoCrossCheck() {
+  const el = document.getElementById('sales-xcheck'); if (!el) return;
+  const rows = poCrossCheck(); const bad = rows.filter(r => !r.ok);
+  document.getElementById('sales-xcheck-title').innerHTML = bad.length ? `❌ ยอด PO ไม่ตรงกับ Dashboard ${bad.length} เดือน` : '✅ ยอด PO ตรงกับ Dashboard ทุกเดือน';
+  el.innerHTML = `<table><thead><tr><th>เดือน</th><th>Dashboard (โปรเจกต์)</th><th>หน้างานขาย (ได้ PO)</th><th>ส่วนต่าง</th><th>ผล</th></tr></thead><tbody>
+    ${rows.map(r => `<tr style="${r.ok ? '' : 'background:#fef2f2;'}"><td>${monthLabel(r.month)}</td><td class="s-money">${fmtBaht(r.dash)} <span class="s-sub">(${r.dashN})</span></td>
+      <td class="s-money">${fmtBaht(r.sale)} <span class="s-sub">(${r.saleN})</span></td><td class="s-money" style="color:${r.dash - r.sale ? 'var(--danger)' : 'inherit'};">${r.dash - r.sale ? fmtBaht(r.dash - r.sale) : '0'}</td>
+      <td>${r.ok ? '<span class="badge b-po">ตรง</span>' : '<span class="badge b-loss">ไม่ตรง</span>'}${r.issues.length ? `<div class="s-sub" style="color:#991b1b;">• ${r.issues.map(esc).join('<br>• ')}</div>` : ''}</td></tr>`).join('')}
+    </tbody></table>`;
+  const d = document.getElementById('dash-xcheck');
+  if (d) { d.style.display = bad.length ? 'block' : 'none'; d.innerHTML = `⚠️ ยอด PO ไม่ตรงกับหน้างานขาย ${bad.length} เดือน (${bad.map(r => monthLabel(r.month)).join(', ')}) — <a href="#" onclick="showView('sales');setTimeout(()=>document.getElementById('sales-xcheck').scrollIntoView({behavior:'smooth'}),100);return false;">ดูรายละเอียด</a>`; }
+}
 const ASK = '<span class="tagneed">ยังไม่กรอก</span>';
 /** งานนี้ยังมีช่องที่ต้องได้คำตอบจาก Joe ไหม (Joe สั่ง 19 ก.ย. 2569: สิ่งที่ต้องได้จาก Joe ให้ถามทุกครั้ง) */
-function saleNeedsJoe(s) { return !s.owner || !s.source || !s.stage || (s.askJoe && s.askJoe.length) || (isSaleOpen(s) && !s.nextDate); }
+function saleNeedsJoe(s) { if (s.backfill) return false; return !s.owner || !s.source || !s.stage || (s.askJoe && s.askJoe.length) || (isSaleOpen(s) && !s.nextDate); }
 const SALE_SOURCES = [
   { key: 'ลูกค้าโทรเข้า', color: '#1a3c6e' },
   { key: 'เว็บไซต์',      color: '#f59e0b' },
@@ -2540,17 +2590,18 @@ function renderSales() {
   errEl.style.display = salesError ? 'block' : 'none';
   errEl.textContent = salesError;
 
-  const open = sales.filter(s => isSaleOpen(s));
+  const open = pipe().filter(s => isSaleOpen(s));
   const openVal = open.reduce((a, s) => a + (+s.value || 0), 0);
   const ym = todayStr().slice(0, 7);
   const wonMonth = sales.filter(s => s.stage === 'ได้ PO' && (s.poDate || '').slice(0, 7) === ym);
   const wonMonthVal = wonMonth.reduce((a, s) => a + (+s.value || 0), 0);
-  const won = sales.filter(s => s.stage === 'ได้ PO').length;
-  const lost = sales.filter(s => s.stage === 'แพ้งาน').length;
+  const won = pipe().filter(s => s.stage === 'ได้ PO').length;
+  const lost = pipe().filter(s => s.stage === 'แพ้งาน').length;
   const rate = (won + lost) ? Math.round(won * 100 / (won + lost)) : null;
   const expiring = sales.filter(s => ['ส่งใบแล้ว', 'รอ PO'].includes(s.stage) && s.expiry && daysFromToday(s.expiry) <= 7);
 
-  const askN = sales.filter(saleNeedsJoe).length, sugN = 0;
+  const askN = pipe().filter(saleNeedsJoe).length, sugN = 0;
+  renderPoCrossCheck();
   const ab = document.getElementById('sales-ask-banner');
   ab.style.display = (askN || sugN) ? 'block' : 'none';
   ab.innerHTML = `${askN ? `⚠️ <b>${askN} งานข้อมูลยังไม่ครบ</b> (ช่องที่มีป้าย ${ASK}) — ผู้ดูแลงานกด "แก้ไข" แล้วกรอกให้ครบ — <a href="#" onclick="document.getElementById('sales-f-stage').value='__ask';renderSales();document.getElementById('sales-table').scrollIntoView({behavior:'smooth'});return false;">ดูรายการ</a>` : ''}${askN && sugN ? ' · ' : ''}${sugN ? `📥 <b>${sugN} งานมีอัปเดตจากการสแกน Drive</b> รอยืนยัน — <a href="#" onclick="document.getElementById('sales-f-stage').value='__sug';renderSales();document.getElementById('sales-table').scrollIntoView({behavior:'smooth'});return false;">ดูรายการ</a>` : ''}`;
@@ -2582,9 +2633,9 @@ function renderSales() {
     </tbody></table>` : '<div class="s-empty">ไม่มีงานที่ต้องตามวันนี้ 👍</div>';
 
   // Funnel
-  const maxCount = Math.max(1, ...SALE_STAGES.map(st => sales.filter(s => s.stage === st.key).length));
+  const maxCount = Math.max(1, ...SALE_STAGES.map(st => pipe().filter(s => s.stage === st.key).length));
   document.getElementById('sales-funnel').innerHTML = SALE_STAGES.map(st => {
-    const list = sales.filter(s => s.stage === st.key);
+    const list = pipe().filter(s => s.stage === st.key);
     const val = list.reduce((a, s) => a + (+s.value || 0), 0);
     const w = Math.max(8, Math.round(list.length * 100 / maxCount));
     const label = list.length + (val && st.key !== 'แพ้งาน' ? ' · ' + fmtMillion(val) : ' รายการ');
@@ -2592,9 +2643,9 @@ function renderSales() {
   }).join('');
 
   // Sources
-  const total = sales.length;
+  const total = pipe().length;
   document.getElementById('sales-sources').innerHTML = SALE_SOURCES.map(src => {
-    const n = sales.filter(s => (s.source || 'อื่นๆ') === src.key).length;
+    const n = pipe().filter(s => (s.source || 'อื่นๆ') === src.key).length;
     const pct = total ? Math.round(n * 100 / total) : 0;
     return `<div class="s-src-row"><div class="s-src-name">${esc(src.key)}</div><div class="s-src-track"><div class="s-src-fill" style="width:${pct}%;background:${src.color};"></div></div><b style="min-width:62px;text-align:right;${n ? '' : 'color:var(--text-muted);'}">${pct}% · ${n}</b></div>`;
   }).join('') + `<div class="s-note s-note-blue" style="margin:14px 0 0;"><b>ช่องเว็บไซต์</b> คือหลักฐานว่างาน SEO คุ้มหรือไม่ — ใส่ที่มาให้ตรงทุกครั้งที่เพิ่มงาน</div>`;
@@ -2602,12 +2653,12 @@ function renderSales() {
   // ตัวกรอง
   const fs = document.getElementById('sales-f-stage'), fo = document.getElementById('sales-f-owner');
   const vs = fs.value, vo = fo.value;
-  fs.innerHTML = '<option value="">ทุกขั้นตอน</option>' + `<option value="__ask" ${vs === '__ask' ? 'selected' : ''}>⚠️ ข้อมูลยังไม่ครบ</option>` + SALE_STAGES.map(st => `<option ${st.key === vs ? 'selected' : ''}>${esc(st.key)}</option>`).join('');
+  fs.innerHTML = '<option value="">ทุกขั้นตอน</option>' + `<option value="__ask" ${vs === '__ask' ? 'selected' : ''}>⚠️ ข้อมูลยังไม่ครบ</option>` + `<option value="__hist" ${vs === '__hist' ? 'selected' : ''}>📁 PO ก่อนเริ่มใช้ pipeline (คัดลอกจากโปรเจกต์)</option>` + SALE_STAGES.map(st => `<option ${st.key === vs ? 'selected' : ''}>${esc(st.key)}</option>`).join('');
   const owners = [...new Set(sales.map(s => s.owner).filter(Boolean))];
   fo.innerHTML = '<option value="">ทุกผู้ดูแล</option>' + owners.map(o => `<option value="${esc(o)}" ${o === vo ? 'selected' : ''}>${esc(o)}</option>`).join('');
 
   const order = k => k ? SALE_STAGES.findIndex(st => st.key === k) : -1;
-  const rows = sales.filter(s => (!vs || (vs === '__ask' ? saleNeedsJoe(s) : s.stage === vs)) && (!vo || s.owner === vo))
+  const rows = sales.filter(s => (vs === '__hist' ? isBackfill(s) : !isBackfill(s)) && (!vs || vs === '__hist' || (vs === '__ask' ? saleNeedsJoe(s) : s.stage === vs)) && (!vo || s.owner === vo))
     .sort((a, b) => (order(a.stage) - order(b.stage)) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
 
   document.getElementById('sales-table').innerHTML = rows.length ? `
@@ -2878,6 +2929,10 @@ async function confirmPoInbox(id) {
     // ผูกงานขายที่เลข job ตรงกัน (ถ้ามี)
     const sale = sales.find(s => String(s.job || '').trim() === String(x.job) && !s.projectId);
     if (sale) await db.collection('sales').doc(sale.id).update({ stage: 'ได้ PO', poDate: project.start, closedDate: todayStr(), projectId: pid, value, updatedAt: new Date().toISOString() });
+    else if (confirm(`ยังไม่มี job ${x.job} ในหน้างานขาย\nสร้างเป็น "ได้ PO" ให้เลยไหม? (เพื่อให้ยอด PO ตรงกับ Dashboard)\nที่มาของงานจะยังว่าง ให้ผู้ดูแลกรอกเอง`)) {
+      await db.collection('sales').doc('job' + x.job).set({ client: project.client, name: g('name'), job: x.job, stage: 'ได้ PO', source: '', value, quote: x.quoteNo || '', expiry: '', next: '', nextDate: '', lostReason: '', note: '', owner,
+        createdAt: new Date().toISOString(), createdBy: currentUser ? currentUser.email : '', updatedAt: new Date().toISOString(), poDate: project.start, closedDate: todayStr(), projectId: pid, askJoe: [], suggest: null }, { merge: true });
+    }
     alert(`✅ บันทึก ${code} เข้าหน้าโปรเจกต์แล้ว` + (sale ? '\n(อัปเดตงานขายเป็น "ได้ PO" ให้ด้วย)' : ''));
   } catch (err) {
     alert('บันทึกไม่สำเร็จ: ' + (err && (err.code === 'permission-denied' ? 'ไม่มีสิทธิ์' : err.message)));
