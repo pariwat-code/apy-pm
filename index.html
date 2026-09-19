@@ -288,6 +288,7 @@
   .s-filter { padding:5px 8px; border:1px solid var(--border); border-radius:7px; font-size:12px; font-family:inherit; background:#fff; }
   .s-empty { text-align:center; color:var(--text-muted); padding:28px 12px; font-size:13px; }
   .nav-pill { margin-left:auto; background:var(--accent); color:var(--primary); font-size:9.5px; font-weight:800; padding:1px 6px; border-radius:999px; }
+  body:not([data-role="admin"]) .admin-only { display:none !important; }
   body[data-role="viewer"] button[onclick*="openNewSaleModal"],
   body[data-role="viewer"] button[onclick*="editSale"],
   body[data-role="viewer"] button[onclick*="createProjectFromSale"],
@@ -494,19 +495,20 @@
       <span>งบประมาณ</span>
     </div>
   </nav>
-  <!-- ปุ่มล้างข้อมูลทั้งหมด (ใช้ครั้งเดียว) -->
-  <div style="padding:8px 12px;">
-    <button onclick="clearAllData()" style="width:100%;padding:8px;background:#7f1d1d;color:#fca5a5;border:1px solid #991b1b;border-radius:8px;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
-      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-      ล้างข้อมูลทั้งหมด
+  <!-- 19 ก.ย. 2569: เอาปุ่ม "ล้างข้อมูลทั้งหมด" ออก (เสี่ยงข้อมูลหายทั้งปี) → แทนด้วยปุ่มสำรองข้อมูล (admin เท่านั้น) -->
+  <div style="padding:8px 12px;" class="admin-only">
+    <button onclick="backupData()" style="width:100%;padding:8px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:8px;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+      💾 สำรองข้อมูล (ดาวน์โหลดไฟล์)
     </button>
+    <div id="backup-last" style="font-size:10px;opacity:0.6;text-align:center;margin-top:4px;color:#fff;"></div>
   </div>
   <div class="sidebar-footer">
     <div class="user-badge">
       <div class="user-avatar">J</div>
       <div class="user-info" style="font-size:11px;">
-        <div style="font-weight:700;">Joe</div>
-        <div style="opacity:0.6;">MD / Owner · APY</div>
+        <div style="font-weight:700;" id="sb-user-name">—</div>
+        <div style="opacity:0.6;" id="sb-user-role">APY</div>
+        <div style="opacity:0.45;font-size:9.5px;margin-top:2px;">เวอร์ชันแอป <span id="app-version"></span></div>
       </div>
     </div>
   </div>
@@ -604,8 +606,10 @@
         <div class="card">
           <div class="card-header">
             <span class="card-title">📈 มูลค่าโปรเจกต์รายเดือน (฿)</span>
+            <select id="dash-year" class="s-filter" onchange="renderDashboard()"></select>
           </div>
           <div class="card-body" style="padding-bottom:12px;">
+            <div id="dash-backup" class="s-note" style="display:none;margin-bottom:10px;"></div>
             <div id="dash-xcheck" class="s-note" style="display:none;margin-bottom:10px;background:#fef2f2;border-color:#fecaca;border-left-color:#ef4444;color:#991b1b;"></div>
             <div class="bar-chart" id="monthly-chart"></div>
           </div>
@@ -1036,6 +1040,7 @@
         <div class="form-group"><label class="form-label">ต้องทำถัดไป</label><input class="form-control" id="s-next" placeholder="เช่น โทรถามผล"></div>
         <div class="form-group"><label class="form-label">วันที่ต้องตาม</label><input class="form-control" id="s-nextdate" type="date"></div>
       </div>
+      <div class="form-group" id="s-podate-wrap" style="display:none;"><label class="form-label">วันที่ PO * (ยอดจะไปลงเดือนนี้บน Dashboard/ตารางตรวจยอด)</label><input class="form-control" id="s-podate" type="date"></div>
       <div class="form-group" id="s-lost-wrap" style="display:none;"><label class="form-label">เหตุผลที่แพ้งาน</label><input class="form-control" id="s-lost" placeholder="เช่น ราคาสูงกว่าคู่แข่ง"></div>
       <div class="form-group"><label class="form-label">หมายเหตุ</label><textarea class="form-control" id="s-note" rows="2"></textarea></div>
     </div>
@@ -1234,8 +1239,14 @@ function guardEdit(ownerName, what) {
 const ROLE_LABEL = { admin: 'แก้ไขได้ทั้งหมด', viewer: 'ดูอย่างเดียว',
                      sales: 'แก้ได้เฉพาะงานของตัวเอง', none: 'ยังไม่ได้กำหนดสิทธิ์' };
 
+const APP_VERSION = '2026-09-19c';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
 function applyRoleToUI() {
   document.body.setAttribute('data-role', myRole.level);
+  const nm = document.getElementById('sb-user-name'), rl = document.getElementById('sb-user-role');
+  if (nm) nm.textContent = myRole.name || (currentUser ? currentUser.email : '—');
+  if (rl) rl.textContent = ROLE_LABEL[myRole.level] || '';
+  const av = document.querySelector('.sidebar-footer .user-avatar');
+  if (av && (myRole.name || currentUser)) av.textContent = (myRole.name || currentUser.email || '?').charAt(0).toUpperCase();
   const el = document.getElementById('topbar-user-email');
   if (el && currentUser) {
     const who = myRole.name || currentUser.displayName || currentUser.email;
@@ -1266,7 +1277,7 @@ auth.onAuthStateChanged(user => {
     document.getElementById('topbar-user-badge').textContent  = initials;
     document.getElementById('topbar-user-email').textContent  = user.displayName || user.email;
     // อ่านสิทธิ์ก่อน แล้วค่อยดึงข้อมูล — กันไม่ให้ปุ่มแก้ไขโผล่ชั่ววินาทีก่อนรู้สิทธิ์
-    loadMyRole(user).then(startFirestoreListeners);
+    loadMyRole(user).then(startFirestoreListeners).then(loadBackupInfo);
   } else {
     currentUser = null;
     myRole = { level: 'none', name: '' };
@@ -1400,6 +1411,8 @@ function fbDeleteTask(id)    { return db.collection('tasks').doc(String(id)).del
 function fbDeleteMember(id)  { return db.collection('members').doc(String(id)).delete(); }
 
 function clearAllData() {
+  alert('ฟังก์ชันล้างข้อมูลทั้งหมดถูกปิดแล้ว (19 ก.ย. 2569) เพื่อป้องกันข้อมูลหาย\nถ้าจำเป็นจริงให้ทำผ่าน Firebase Console');
+  return;
   // Show password re-auth modal instead of confirm dialog
   const modal = document.getElementById('modal-reauth');
   const pwInput = document.getElementById('reauth-password');
@@ -1574,12 +1587,19 @@ function renderDashboard() {
   // Bar chart by month
   const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   const monthBudget = Array(12).fill(0);
+  // แยกตามปี (19 ก.ย. 2569) — เดิมรวมทุกปีเข้าเดือนเดียวกัน
+  const ySel = document.getElementById('dash-year');
+  const years = [...new Set(projects.filter(p => p.start).map(p => p.start.slice(0, 4)))].sort().reverse();
+  const nowY = String(new Date().getFullYear());
+  if (!years.includes(nowY)) years.unshift(nowY);
+  const selY = (ySel && ySel.value && years.includes(ySel.value)) ? ySel.value : nowY;
+  if (ySel) ySel.innerHTML = years.map(y => `<option value="${y}" ${y === selY ? 'selected' : ''}>ปี ${+y + 543}</option>`).join('');
   projects.forEach(p => {
-    if (p.start) { const m = new Date(p.start).getMonth(); monthBudget[m] += p.budget||0; }
+    if (p.start && p.start.slice(0, 4) === selY) { const m = +p.start.slice(5, 7) - 1; monthBudget[m] += p.budget||0; }
   });
   const maxB = Math.max(...monthBudget, 1);
   const chartEl = document.getElementById('monthly-chart');
-  const currentMonth = new Date().getMonth();
+  const currentMonth = selY === nowY ? new Date().getMonth() : -1;
   chartEl.innerHTML = months.map((m,i) => {
     const h = Math.max(Math.round((monthBudget[i]/maxB)*100), monthBudget[i]>0?6:2);
     const isNow = i === currentMonth;
@@ -2684,7 +2704,9 @@ function fillSaleSelects(stage, source, owner) {
   toggleSaleLost();
 }
 function toggleSaleLost() {
-  document.getElementById('s-lost-wrap').style.display = document.getElementById('s-stage').value === 'แพ้งาน' ? 'block' : 'none';
+  const st = document.getElementById('s-stage').value;
+  document.getElementById('s-lost-wrap').style.display = st === 'แพ้งาน' ? 'block' : 'none';
+  document.getElementById('s-podate-wrap').style.display = st === 'ได้ PO' ? 'block' : 'none';
 }
 
 function openNewSaleModal() {
@@ -2693,6 +2715,7 @@ function openNewSaleModal() {
   document.getElementById('modal-sale-title').textContent = '🆕 เพิ่มงานขาย';
   ['s-client','s-job','s-name','s-value','s-quote','s-expiry','s-next','s-nextdate','s-lost','s-note'].forEach(id => document.getElementById(id).value = '');
   fillSaleSelects('', '', isSales() ? myRole.name : '');
+  document.getElementById('s-podate').value = '';
   document.getElementById('s-ask-box').style.display = 'none';
   document.getElementById('s-auto-box').style.display = 'none';
   document.getElementById('s-delete-btn').style.display = 'none';
@@ -2709,6 +2732,7 @@ function editSale(id) {
                 's-next': 'next', 's-nextdate': 'nextDate', 's-lost': 'lostReason', 's-note': 'note' };
   Object.keys(map).forEach(k => document.getElementById(k).value = s[map[k]] || '');
   fillSaleSelects(s.stage || '', s.source || '', s.owner || '');
+  document.getElementById('s-podate').value = s.poDate || '';
   const asks = (s.askJoe || []).slice();
   if (!s.owner) asks.unshift('ผู้ดูแล (Sales) คือใคร');
   if (!s.source) asks.unshift('ที่มาของงาน');
@@ -2731,6 +2755,7 @@ function saveSale() {
   if (isSales()) owner = myRole.name;
   if (!isAdmin() && !isSales()) { guardEdit('', 'การบันทึก'); return; }
   const miss = [!document.getElementById('s-stage').value && 'ขั้นตอน', !document.getElementById('s-source').value && 'ที่มาของงาน', !owner && 'ผู้ดูแล'].filter(Boolean);
+  if (document.getElementById('s-stage').value === 'ได้ PO' && !document.getElementById('s-podate').value) miss.push('วันที่ PO');
   if (miss.length) { alert('ยังไม่ได้เลือก: ' + miss.join(' · ') + '\nช่องเหล่านี้ระบบไม่เลือกให้ ต้องเลือกเองทุกครั้ง'); return; }
   const prev = editingSaleId ? (sales.find(x => String(x.id) === String(editingSaleId)) || {}) : {};
   const stage = document.getElementById('s-stage').value;
@@ -2745,7 +2770,7 @@ function saveSale() {
     createdAt: prev.createdAt || new Date().toISOString(),
     createdBy: prev.createdBy || (currentUser ? currentUser.email : ''),
     updatedAt: new Date().toISOString(),
-    poDate: stage === 'ได้ PO' ? (prev.stage === 'ได้ PO' && prev.poDate ? prev.poDate : todayStr()) : '',
+    poDate: stage === 'ได้ PO' ? g('s-podate') : '',
     closedDate: (stage === 'ได้ PO' || stage === 'แพ้งาน') ? (prev.closedDate && prev.stage === stage ? prev.closedDate : todayStr()) : '',
     projectId: prev.projectId || '',
     // เก็บข้อมูลที่มาจากการสแกนไว้ · คำถามถือว่าตอบแล้วเมื่อบันทึก
@@ -2801,6 +2826,7 @@ function createProjectFromSale(id, fresh) {
   document.getElementById('p-name').value = s.name || '';
   document.getElementById('p-client').value = s.client || '';
   document.getElementById('p-budget').value = s.value || '';
+  if (s.poDate) document.getElementById('p-start').value = s.poDate;   // วันเริ่มโปรเจกต์ = วันที่ PO ให้ยอดรายเดือนตรงกัน
   if (s.job) document.getElementById('p-code').value = 'APY-' + new Date().getFullYear() + '-' + s.job;
   document.getElementById('p-status').value = 'กำลังดำเนินการ';
   populateOwnerDropdown(s.owner || '');
@@ -2949,10 +2975,54 @@ function skipPoInbox(id) {
 }
 
 // ============================================================
+//  สำรองข้อมูล (19 ก.ย. 2569) — แพ็กเกจ Firebase ฟรีไม่มี backup อัตโนมัติ
+//  admin กดปุ่ม → ดาวน์โหลดไฟล์ JSON ทุก collection · บันทึกเวลาไว้ที่ meta/backup · เตือนถ้าเกิน 7 วัน
+// ============================================================
+let lastBackup = null;
+async function backupData() {
+  if (!isAdmin()) { alert('เฉพาะผู้ดูแลระบบ'); return; }
+  const cols = ['projects', 'tasks', 'members', 'sales', 'po_inbox', 'roles', 'meta'];
+  const out = { app: 'APY Project Management', version: APP_VERSION, exportedAt: new Date().toISOString(), exportedBy: currentUser ? currentUser.email : '', data: {} };
+  const counts = {};
+  try {
+    for (const c of cols) {
+      const snap = await db.collection(c).get();
+      out.data[c] = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+      counts[c] = snap.size;
+    }
+  } catch (e) { alert('สำรองข้อมูลไม่สำเร็จ: ' + (e && e.message)); return; }
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  const fname = `apy-pm-backup-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.json`;
+  const blob = new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  await db.collection('meta').doc('backup').set({ lastAt: out.exportedAt, by: out.exportedBy, file: fname, counts }).catch(() => {});
+  alert(`✅ ดาวน์โหลด ${fname} แล้ว\n` + Object.entries(counts).map(([k, v]) => `${k}: ${v}`).join(' · ') +
+        '\n\nเก็บไฟล์ไว้ในโฟลเดอร์ APY Project Management Soffware/_Backup');
+  loadBackupInfo();
+}
+function loadBackupInfo() {
+  db.collection('meta').doc('backup').get().then(doc => {
+    lastBackup = doc.exists ? doc.data() : null; renderBackupInfo();
+  }).catch(() => {});
+}
+function renderBackupInfo() {
+  const el = document.getElementById('backup-last'), bn = document.getElementById('dash-backup');
+  const days = lastBackup && lastBackup.lastAt ? Math.floor((Date.now() - new Date(lastBackup.lastAt)) / 86400000) : null;
+  if (el) el.textContent = days === null ? 'ยังไม่เคยสำรอง' : `ล่าสุด ${fmtDate(lastBackup.lastAt)} (${days} วันก่อน)`;
+  if (bn) {
+    const show = isAdmin() && (days === null || days >= 7);
+    bn.style.display = show ? 'block' : 'none';
+    bn.innerHTML = `💾 ${days === null ? 'ยังไม่เคยสำรองข้อมูล' : 'ไม่ได้สำรองข้อมูลมา ' + days + ' วัน'} — <a href="#" onclick="backupData();return false;">กดสำรองตอนนี้</a> (ใช้เวลาไม่ถึง 10 วินาที)`;
+  }
+}
+
+// ============================================================
 // INIT
 // ============================================================
 // seedData() ถูกถอดออก 2 ก.ย. 2569 — ฟังก์ชันไม่มีอยู่จริง ทำให้เกิด ReferenceError ตอนโหลด
 document.body.setAttribute('data-role', 'none');
+document.getElementById('app-version').textContent = APP_VERSION;
 renderAll();
 </script>
 </body>
