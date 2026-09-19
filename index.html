@@ -955,7 +955,7 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">วันเริ่มต้น</label>
-          <input class="form-control" id="p-start" type="date">
+          <input class="form-control" id="p-start" type="date" onchange="autoEnd30()">
         </div>
         <div class="form-group">
           <label class="form-label">กำหนดส่งงาน</label>
@@ -1239,7 +1239,7 @@ function guardEdit(ownerName, what) {
 const ROLE_LABEL = { admin: 'แก้ไขได้ทั้งหมด', viewer: 'ดูอย่างเดียว',
                      sales: 'แก้ได้เฉพาะงานของตัวเอง', none: 'ยังไม่ได้กำหนดสิทธิ์' };
 
-const APP_VERSION = '2026-09-19c';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
+const APP_VERSION = '2026-09-19d';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
 function applyRoleToUI() {
   document.body.setAttribute('data-role', myRole.level);
   const nm = document.getElementById('sb-user-name'), rl = document.getElementById('sb-user-role');
@@ -2058,7 +2058,8 @@ function openNewProjectModal() {
   document.getElementById('p-type').value = 'Automation';
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('p-start').value = today;
-  document.getElementById('p-end').value = '';
+  document.getElementById('p-end').value = plus30(today);
+  lastAutoEnd = document.getElementById('p-end').value;
   // Auto code
   const nextNum = String(projects.length + 1).padStart(3, '0');
   document.getElementById('p-code').value = `APY-${new Date().getFullYear()}-${nextNum}`;
@@ -2561,6 +2562,12 @@ let pendingSaleLink = null;   // id งานขายที่กำลัง�
 function esc(v) {
   return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+/** วันเสร็จเริ่มต้น = วันได้ PO + 30 วัน (Joe กำหนด 19 ก.ย. 2569 · ใช้กับงานใหม่ แก้ได้ทีละงาน) */
+function plus30(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + 30);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 function todayStr() {
   const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 10);
@@ -2826,7 +2833,7 @@ function createProjectFromSale(id, fresh) {
   document.getElementById('p-name').value = s.name || '';
   document.getElementById('p-client').value = s.client || '';
   document.getElementById('p-budget').value = s.value || '';
-  if (s.poDate) document.getElementById('p-start').value = s.poDate;   // วันเริ่มโปรเจกต์ = วันที่ PO ให้ยอดรายเดือนตรงกัน
+  if (s.poDate) { document.getElementById('p-start').value = s.poDate; document.getElementById('p-end').value = plus30(s.poDate); lastAutoEnd = document.getElementById('p-end').value; }   // วันเริ่ม = วันที่ PO · วันเสร็จ +30
   if (s.job) document.getElementById('p-code').value = 'APY-' + new Date().getFullYear() + '-' + s.job;
   document.getElementById('p-status').value = 'กำลังดำเนินการ';
   populateOwnerDropdown(s.owner || '');
@@ -2851,6 +2858,13 @@ function createProjectFromSale(id, fresh) {
   closeModal = function (id) { if (id === 'modal-project') setTimeout(() => { pendingSaleLink = null; }, 0); return origClose(id); };
 })();
 
+
+// วันเริ่ม = วันได้ PO · วันเสร็จ = +30 วัน อัตโนมัติ (ถ้าผู้ใช้ยังไม่ได้แก้วันเสร็จเอง)
+let lastAutoEnd = '';
+function autoEnd30() {
+  const st = document.getElementById('p-start').value, en = document.getElementById('p-end');
+  if (!en.value || en.value === lastAutoEnd) { en.value = plus30(st); lastAutoEnd = en.value; }
+}
 
 // ============================================================
 //  PO เข้าใหม่ (PO inbox) — เพิ่ม 19 ก.ย. 2569
@@ -2894,10 +2908,10 @@ function renderPoInbox() {
         <div class="auto-f"><label>เลข job <span class="tagauto">อัตโนมัติ</span></label><input value="${esc(x.job)}" readonly></div>
         <div class="auto-f"><label>ลูกค้า <span class="tagauto">อัตโนมัติ</span></label><input id="pi-client-${esc(x.id)}" value="${esc(x.client)}"></div>
         <div class="auto-f"><label>เลข PO <span class="tagauto">อัตโนมัติ</span></label><input value="${esc(x.poNo)}" readonly></div>
-        <div class="auto-f"><label>วันที่ PO <span class="tagauto">อัตโนมัติ</span></label><input id="pi-podate-${esc(x.id)}" type="date" value="${esc(x.poDate)}"></div>
+        <div class="auto-f"><label>วันที่ PO <span class="tagauto">อัตโนมัติ</span></label><input id="pi-podate-${esc(x.id)}" type="date" value="${esc(x.poDate)}" onchange="document.getElementById('pi-end-${esc(x.id)}').value=plus30(this.value)"></div>
         <div class="auto-f" style="grid-column:span 2;"><label>ชื่องาน <span class="tagauto">อัตโนมัติ</span></label><input id="pi-name-${esc(x.id)}" value="${esc(x.name)}"></div>
         <div class="auto-f"><label>มูลค่า PO (ex-VAT) <span class="tagauto">อ่านจาก PO</span></label><input id="pi-value-${esc(x.id)}" type="number" value="${esc(x.value)}" oninput="updatePoGp('${esc(x.id)}')"></div>
-        <div class="auto-f"><label>กำหนดส่งมอบ <span class="tagauto">อ่านจาก PO</span></label><input id="pi-end-${esc(x.id)}" type="date" value="${esc(x.delivery)}"></div>
+        <div class="auto-f"><label>วันเสร็จ (วัน PO + 30) <span class="tagauto">อัตโนมัติ</span></label><input id="pi-end-${esc(x.id)}" type="date" value="${esc(plus30(x.poDate))}">${x.delivery ? `<div class="po-src">วันส่งมอบใน PO: ${esc(fmtDate(x.delivery))}</div>` : ''}</div>
         <div class="need po-cost"><label>ต้นทุน (บาท) <span class="tagneed">ถาม Joe</span></label><input id="pi-cost-${esc(x.id)}" type="number" value="${esc(c)}" oninput="updatePoGp('${esc(x.id)}')">
           <div class="po-src">ที่มา: ${esc(x.costSource || 'ไม่พบ — กรอกเอง')} · GP <b id="pi-gp-${esc(x.id)}">${gp}</b></div></div>
         <div class="need"><label>ประเภทงาน <span class="tagneed">ถาม Joe</span></label><select id="pi-type-${esc(x.id)}"><option value="">-- เลือก --</option>${typeOpts}</select></div>
@@ -2944,7 +2958,7 @@ async function confirmPoInbox(id) {
     code, name: (g('podate') || todayStr()).slice(0, 4) + '-' + x.job + ' ' + g('name'), type,
     client: g('client'), contact: x.contact || '', budget: value, cost,
     start: g('podate') || todayStr(), end: g('end') || '', status, payment: pay, progress: status === 'เสร็จสมบูรณ์' ? 100 : 0, owner,
-    note: ['PO ' + x.poNo + (x.poDate ? ' ลงวันที่ ' + x.poDate : ''), x.quoteNo ? 'ใบเสนอราคา ' + x.quoteNo : '', x.credit ? 'เครดิต ' + x.credit : '',
+    note: ['PO ' + x.poNo + (x.poDate ? ' ลงวันที่ ' + x.poDate : ''), x.quoteNo ? 'ใบเสนอราคา ' + x.quoteNo : '', x.credit ? 'เครดิต ' + x.credit : '', x.delivery ? 'วันส่งมอบใน PO ' + x.delivery : '',
            'ต้นทุน ' + cost.toLocaleString('th-TH') + ' ยืนยันโดย ' + (currentUser ? currentUser.email : '') + ' ' + todayStr()].filter(Boolean).join(' · '),
   };
   if (projects.some(p => p.code === code) && !confirm(`มีโปรเจกต์รหัส ${code} อยู่แล้วในระบบ\nยังต้องการสร้างเพิ่มอีกรายการไหม?`)) return;
