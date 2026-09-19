@@ -914,10 +914,14 @@
       <button class="btn-close" onclick="closeModal('modal-project')">✕</button>
     </div>
     <div class="modal-body">
-      <div class="form-row">
+      <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;">
         <div class="form-group">
           <label class="form-label">รหัสโปรเจกต์</label>
           <input class="form-control" id="p-code" placeholder="APY-2026-001">
+        </div>
+        <div class="form-group">
+          <label class="form-label" title="1 job มีหลาย PO ได้ · 1 PO = 1 รายการ">เลข PO ลูกค้า</label>
+          <input class="form-control" id="p-pono" placeholder="เช่น 3200022247">
         </div>
         <div class="form-group">
           <label class="form-label">ประเภทงาน</label>
@@ -1254,7 +1258,7 @@ function guardEdit(ownerName, what) {
 const ROLE_LABEL = { admin: 'แก้ไขได้ทั้งหมด', viewer: 'ดูอย่างเดียว',
                      sales: 'แก้ได้เฉพาะงานของตัวเอง', none: 'ยังไม่ได้กำหนดสิทธิ์' };
 
-const APP_VERSION = '2026-09-19f';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
+const APP_VERSION = '2026-09-19g';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
 function applyRoleToUI() {
   document.body.setAttribute('data-role', myRole.level);
   const nm = document.getElementById('sb-user-name'), rl = document.getElementById('sb-user-role');
@@ -1751,7 +1755,7 @@ function renderDashboard() {
   } else {
     tbody.innerHTML = recent.map(p => `
       <tr onclick="openDetail('${p.id}')" style="cursor:pointer;">
-        <td><span style="font-weight:600;">${p.name}</span><br><span style="font-size:11px;color:var(--text-muted);">${p.code}</span></td>
+        <td><span style="font-weight:600;">${p.name}</span><br><span style="font-size:11px;color:var(--text-muted);">${p.code}${p.poNo ? ' · PO ' + esc(p.poNo) : ''}</span></td>
         <td style="font-size:12px;">${p.client}</td>
         <td><span class="type-badge" style="background:${typeColors[p.type]||'#94a3b8'}22;color:${typeColors[p.type]||'#94a3b8'};border:1px solid ${typeColors[p.type]||'#94a3b8'}44;">${p.type}</span></td>
         <td><span class="badge ${statusColors[p.status]||'badge-gray'}">${p.status}</span>${isOverdue(p.end,p.status)?'<span class="badge badge-danger" style="margin-left:4px;">เลยกำหนด!</span>':''}</td>
@@ -1825,7 +1829,7 @@ function renderProjectsList() {
   }
   tbody.innerHTML = filtered.map(p => `
     <tr>
-      <td style="font-size:11px;font-weight:700;color:var(--text-muted);">${p.code}</td>
+      <td style="font-size:11px;font-weight:700;color:var(--text-muted);">${p.code}${p.poNo ? `<div style="font-weight:400;">PO ${esc(p.poNo)}</div>` : ''}</td>
       <td><span style="font-weight:600;cursor:pointer;color:var(--primary-light);" onclick="openDetail('${p.id}')">${p.name}</span></td>
       <td style="font-size:12px;">${p.client}</td>
       <td><span class="type-badge" style="background:${typeColors[p.type]||'#94a3b8'}22;color:${typeColors[p.type]||'#94a3b8'};border:1px solid ${typeColors[p.type]||'#94a3b8'}44;">${p.type}</span></td>
@@ -2068,7 +2072,7 @@ function openNewProjectModal() {
   editingPrevActual = '';
   document.getElementById('p-actualcost').disabled = !isAdmin(); document.getElementById('p-actualnote').disabled = !isAdmin();
   document.getElementById('modal-project-title').textContent = '🆕 เพิ่มโปรเจกต์ใหม่';
-  ['p-code','p-name','p-client','p-contact','p-budget','p-cost','p-actualcost','p-actualnote','p-note'].forEach(id => {
+  ['p-code','p-pono','p-name','p-client','p-contact','p-budget','p-cost','p-actualcost','p-actualnote','p-note'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -2093,6 +2097,7 @@ function editProject(id) {
   editingProjectId = id;
   document.getElementById('modal-project-title').textContent = '✏️ แก้ไขโปรเจกต์';
   document.getElementById('p-code').value = p.code||'';
+  document.getElementById('p-pono').value = p.poNo||'';
   document.getElementById('p-name').value = p.name||'';
   document.getElementById('p-client').value = p.client||'';
   document.getElementById('p-contact').value = p.contact||'';
@@ -2116,8 +2121,11 @@ function editProject(id) {
 function saveProject() {
   const name = document.getElementById('p-name').value.trim();
   if (!name) { alert('กรุณากรอกชื่อโปรเจกต์'); return; }
+  const poNo = document.getElementById('p-pono').value.trim();
+  const dupPo = poNo && projects.find(x => x.id !== editingProjectId && String(x.poNo || '').trim() === poNo);
+  if (dupPo) { alert(`เลข PO ${poNo} มีอยู่แล้วที่ ${dupPo.code} ${dupPo.name}\n1 PO = 1 รายการ บันทึกซ้ำไม่ได้`); return; }
   const data = {
-    code: document.getElementById('p-code').value.trim(),
+    code: document.getElementById('p-code').value.trim(), poNo,
     name, type: document.getElementById('p-type').value,
     client: document.getElementById('p-client').value.trim(),
     contact: document.getElementById('p-contact').value.trim(),
@@ -2141,6 +2149,8 @@ function saveProject() {
   };
   if (editingProjectId) {
     const idx = projects.findIndex(p => p.id === editingProjectId);
+    const prevAll = idx >= 0 ? projects[idx] : {};
+    Object.keys(prevAll).forEach(k => { if (!(k in data)) data[k] = prevAll[k]; });   // เก็บช่องที่ไม่มีในฟอร์มไว้ ไม่ให้หายตอนแก้
     if (idx >= 0) { data.id = editingProjectId; projects[idx] = data; }
     fbSaveProject(data);
   } else {
@@ -2158,7 +2168,7 @@ function deleteProject(id) {
 function openDetail(id) {
   const p = projects.find(p => p.id === id);
   if (!p) return;
-  document.getElementById('detail-title').textContent = `📁 ${p.code} — ${p.name}`;
+  document.getElementById('detail-title').textContent = `📁 ${p.code} — ${p.name}` + (p.poNo ? ` · PO ${p.poNo}` : '');
   document.getElementById('detail-edit-btn').onclick = () => { closeModal('modal-detail'); editProject(id); };
   const projTasks = tasks.filter(t => t.project == id);
   document.getElementById('detail-body').innerHTML = `
