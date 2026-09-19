@@ -681,6 +681,11 @@
           <div class="card-header">
             <span class="card-title">โปรเจกต์ทั้งหมด</span>
             <div style="display:flex;gap:8px;">
+              <select class="form-control" style="width:170px;padding:6px 10px;" id="filter-actual" onchange="renderAll()">
+                <option value="">ต้นทุนจริง: ทั้งหมด</option>
+                <option value="missing">⏳ ยังไม่ใส่ต้นทุนจริง</option>
+                <option value="done">✅ ใส่แล้ว</option>
+              </select>
               <select class="form-control" style="width:150px;padding:6px 10px;" id="filter-status" onchange="renderAll()">
                 <option value="">สถานะทั้งหมด</option>
                 <option>วางแผน</option>
@@ -948,8 +953,18 @@
           <input class="form-control" id="p-budget" type="number" placeholder="1500000">
         </div>
         <div class="form-group">
-          <label class="form-label">ค่าใช้จ่าย (บาท)</label>
-          <input class="form-control" id="p-cost" type="number" placeholder="900000">
+          <label class="form-label">ต้นทุนประมาณการ (บาท)</label>
+          <input class="form-control" id="p-cost" type="number" placeholder="จากใบเสนอราคา · ยืนยันตอนได้ PO">
+        </div>
+      </div>
+      <div class="form-row" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:10px 12px 0;margin-bottom:14px;">
+        <div class="form-group">
+          <label class="form-label">ต้นทุนจริง (บาท) — นุ่นกรอก</label>
+          <input class="form-control" id="p-actualcost" type="number" placeholder="หลังสั่งของ / จ่าย supplier">
+        </div>
+        <div class="form-group">
+          <label class="form-label">ที่มาต้นทุนจริง</label>
+          <input class="form-control" id="p-actualnote" placeholder="เช่น Alibaba #xxx USD 2,959 × เรต PayPal + อากรจริง">
         </div>
       </div>
       <div class="form-row">
@@ -1239,7 +1254,7 @@ function guardEdit(ownerName, what) {
 const ROLE_LABEL = { admin: 'แก้ไขได้ทั้งหมด', viewer: 'ดูอย่างเดียว',
                      sales: 'แก้ได้เฉพาะงานของตัวเอง', none: 'ยังไม่ได้กำหนดสิทธิ์' };
 
-const APP_VERSION = '2026-09-19d';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
+const APP_VERSION = '2026-09-19e';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
 function applyRoleToUI() {
   document.body.setAttribute('data-role', myRole.level);
   const nm = document.getElementById('sb-user-name'), rl = document.getElementById('sb-user-role');
@@ -1570,7 +1585,8 @@ function renderDashboard() {
   const overdue = projects.filter(p => isOverdue(p.end, p.status)).length;
   const totalBudget = projects.reduce((s, p) => s + (p.budget||0), 0);
 
-  const totalCost   = projects.reduce((s, p) => s + (p.cost||0), 0);
+  const totalCost   = projects.reduce((s, p) => s + effCost(p), 0);
+  const nActual = projects.filter(hasActual).length;
   const totalProfit = totalBudget - totalCost;
   const margin      = totalBudget > 0 ? Math.round((totalProfit / totalBudget) * 100) : 0;
 
@@ -1581,7 +1597,7 @@ function renderDashboard() {
   document.getElementById('stat-budget').textContent  = fmtMoney(totalBudget);
   document.getElementById('stat-profit').textContent  = fmtMoney(totalProfit);
   document.getElementById('stat-profit').style.color  = totalProfit >= 0 ? 'var(--success)' : 'var(--danger)';
-  document.getElementById('stat-margin').textContent  = margin + '% margin';
+  document.getElementById('stat-margin').textContent  = margin + '% margin · ต้นทุนจริง ' + nActual + '/' + projects.length + ' งาน';
   document.getElementById('stat-margin').style.color  = margin >= 0 ? 'var(--success)' : 'var(--danger)';
 
   // Bar chart by month
@@ -1798,8 +1814,10 @@ function renderProjectsList() {
   if (!tbody) return;
   const statusF = document.getElementById('filter-status') ? document.getElementById('filter-status').value : '';
   const typeF = document.getElementById('filter-type') ? document.getElementById('filter-type').value : '';
+  const actualF = document.getElementById('filter-actual') ? document.getElementById('filter-actual').value : '';
   let filtered = projects.filter(p =>
-    (!statusF || p.status === statusF) && (!typeF || p.type === typeF)
+    (!statusF || p.status === statusF) && (!typeF || p.type === typeF) &&
+    (!actualF || (actualF === 'missing' ? !hasActual(p) : hasActual(p)))
   );
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted);">ไม่พบโปรเจกต์</td></tr>';
@@ -1811,7 +1829,7 @@ function renderProjectsList() {
       <td><span style="font-weight:600;cursor:pointer;color:var(--primary-light);" onclick="openDetail('${p.id}')">${p.name}</span></td>
       <td style="font-size:12px;">${p.client}</td>
       <td><span class="type-badge" style="background:${typeColors[p.type]||'#94a3b8'}22;color:${typeColors[p.type]||'#94a3b8'};border:1px solid ${typeColors[p.type]||'#94a3b8'}44;">${p.type}</span></td>
-      <td style="font-weight:700;">${fmtMoney(p.budget)}</td>
+      <td style="font-weight:700;">${fmtMoney(p.budget)}<div style="font-size:10px;font-weight:600;${hasActual(p) ? 'color:#15803d;' : 'color:#b45309;'}">${hasActual(p) ? 'ทุนจริง ' + fmtMoney(p.actualCost) : '⏳ รอต้นทุนจริง'}</div></td>
       <td><span class="badge ${statusColors[p.status]||'badge-gray'}">${p.status}</span></td>
       <td>${(()=>{ const pc=paymentColors[p.payment||'ยังไม่เก็บ']||paymentColors['ยังไม่เก็บ']; return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:${pc.bg};color:${pc.color};border:1px solid ${pc.border};">${p.payment||'ยังไม่เก็บ'}</span>`; })()}</td>
       <td style="min-width:90px;">
@@ -2016,7 +2034,7 @@ function renderBudget() {
   const tbody = document.getElementById('budget-tbody');
   if (!tbody) return;
   tbody.innerHTML = projects.map(p => {
-    const profit = (p.budget||0) - (p.cost||0);
+    const profit = (p.budget||0) - effCost(p);
     const margin = p.budget > 0 ? Math.round((profit/p.budget)*100) : 0;
     const pay = p.payment || 'ยังไม่เก็บ';
     const pc = paymentColors[pay] || paymentColors['ยังไม่เก็บ'];
@@ -2024,7 +2042,7 @@ function renderBudget() {
       <td style="font-weight:600;">${p.name}</td>
       <td style="font-size:12px;">${p.client}</td>
       <td style="font-weight:700;">${fmtMoney(p.budget)}</td>
-      <td style="color:var(--danger);">${fmtMoney(p.cost)}</td>
+      <td style="color:var(--danger);">${fmtMoney(effCost(p))} <span style="font-size:10px;${hasActual(p) ? 'color:#15803d;' : 'color:var(--text-muted);'}">${hasActual(p) ? 'จริง' : 'ประมาณ'}</span></td>
       <td style="font-weight:700;color:${profit>=0?'var(--success)':'var(--danger)'};">
         ${fmtMoney(profit)} <span style="font-size:11px;">(${margin}%)</span>
       </td>
@@ -2037,6 +2055,7 @@ function renderBudget() {
 // MODALS
 // ============================================================
 let editingProjectId = null;
+let editingPrevActual = '';
 
 function populateOwnerDropdown(selectedValue) {
   const sel = document.getElementById('p-owner');
@@ -2046,8 +2065,10 @@ function populateOwnerDropdown(selectedValue) {
 
 function openNewProjectModal() {
   editingProjectId = null;
+  editingPrevActual = '';
+  document.getElementById('p-actualcost').disabled = !isAdmin(); document.getElementById('p-actualnote').disabled = !isAdmin();
   document.getElementById('modal-project-title').textContent = '🆕 เพิ่มโปรเจกต์ใหม่';
-  ['p-code','p-name','p-client','p-contact','p-budget','p-cost','p-note'].forEach(id => {
+  ['p-code','p-name','p-client','p-contact','p-budget','p-cost','p-actualcost','p-actualnote','p-note'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -2077,12 +2098,16 @@ function editProject(id) {
   document.getElementById('p-contact').value = p.contact||'';
   document.getElementById('p-budget').value = p.budget||'';
   document.getElementById('p-cost').value = p.cost||'';
+  document.getElementById('p-actualcost').value = hasActual(p) ? p.actualCost : '';
+  document.getElementById('p-actualnote').value = p.actualCostNote || '';
+  editingPrevActual = hasActual(p) ? String(p.actualCost) : '';
   document.getElementById('p-start').value = p.start||'';
   document.getElementById('p-end').value = p.end||'';
   document.getElementById('p-status').value = p.status||'วางแผน';
   document.getElementById('p-payment').value = p.payment||'ยังไม่เก็บ';
   document.getElementById('p-progress').value = p.progress||0;
   populateOwnerDropdown(p.owner||'');
+  document.getElementById('p-actualcost').disabled = !isAdmin(); document.getElementById('p-actualnote').disabled = !isAdmin();
   document.getElementById('p-note').value = p.note||'';
   document.getElementById('p-type').value = p.type||'Automation';
   openModal('modal-project');
@@ -2098,6 +2123,14 @@ function saveProject() {
     contact: document.getElementById('p-contact').value.trim(),
     budget: parseFloat(document.getElementById('p-budget').value) || 0,
     cost: parseFloat(document.getElementById('p-cost').value) || 0,
+    ...(() => {
+      const v = document.getElementById('p-actualcost').value.trim();
+      const prev = editingProjectId ? (projects.find(x => x.id === editingProjectId) || {}) : {};
+      const o = { actualCost: v === '' ? '' : (parseFloat(v) || 0), actualCostNote: document.getElementById('p-actualnote').value.trim() };
+      if (v !== editingPrevActual) { o.actualCostAt = v === '' ? '' : new Date().toISOString(); o.actualCostBy = v === '' ? '' : (currentUser ? currentUser.email : ''); }
+      else { o.actualCostAt = prev.actualCostAt || ''; o.actualCostBy = prev.actualCostBy || ''; }
+      return o;
+    })(),
     start: document.getElementById('p-start').value,
     end: document.getElementById('p-end').value,
     status: document.getElementById('p-status').value,
@@ -2146,12 +2179,12 @@ function openDetail(id) {
         <div style="font-size:11px;color:var(--text-muted);">งบประมาณ</div>
       </div>
       <div style="background:var(--bg);border-radius:8px;padding:12px;text-align:center;">
-        <div style="font-size:18px;font-weight:800;color:var(--danger);">${fmtMoney(p.cost)}</div>
-        <div style="font-size:11px;color:var(--text-muted);">ค่าใช้จ่าย</div>
+        <div style="font-size:18px;font-weight:800;color:var(--danger);">${fmtMoney(effCost(p))}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${hasActual(p) ? 'ต้นทุนจริง (ประมาณการ ' + fmtMoney(p.cost) + ')' : 'ต้นทุนประมาณการ · ยังไม่มีต้นทุนจริง'}</div>
       </div>
       <div style="background:var(--bg);border-radius:8px;padding:12px;text-align:center;">
-        <div style="font-size:18px;font-weight:800;color:var(--success);">${fmtMoney((p.budget||0)-(p.cost||0))}</div>
-        <div style="font-size:11px;color:var(--text-muted);">กำไรประมาณ</div>
+        <div style="font-size:18px;font-weight:800;color:var(--success);">${fmtMoney((p.budget||0)-effCost(p))}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${hasActual(p) ? 'กำไรจริง' : 'กำไรประมาณการ'}</div>
       </div>
     </div>
     <div style="margin-bottom:16px;">
@@ -2562,6 +2595,9 @@ let pendingSaleLink = null;   // id งานขายที่กำลัง�
 function esc(v) {
   return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+/** ต้นทุนที่ใช้คำนวณกำไร: ต้นทุนจริง (นุ่นกรอก) ถ้ามี ไม่งั้นใช้ต้นทุนประมาณการ — Joe เลือก "แยก 2 ช่อง" 19 ก.ย. 2569 */
+function hasActual(p) { return p.actualCost !== undefined && p.actualCost !== null && p.actualCost !== ''; }
+function effCost(p) { return hasActual(p) ? (+p.actualCost || 0) : (+p.cost || 0); }
 /** วันเสร็จเริ่มต้น = วันได้ PO + 30 วัน (Joe กำหนด 19 ก.ย. 2569 · ใช้กับงานใหม่ แก้ได้ทีละงาน) */
 function plus30(dateStr) {
   if (!dateStr) return '';
@@ -2874,6 +2910,11 @@ function autoEnd30() {
 let poInboxError = '';
 const PROJECT_TYPES = ['Automation','Electrical','Software','Installation','Maintenance','Product Supply','Service','Others'];
 
+/** หาโปรเจกต์ที่มีอยู่แล้วของ job นี้ (ปีเดียวกับวันที่ PO) — ปิดช่องโหว่สร้างซ้ำ 19 ก.ย. 2569 */
+function findExistingProject(x) {
+  const y = (x.poDate || todayStr()).slice(0, 4), j = String(x.job || '').padStart(3, '0');
+  return projects.find(p => p.code === 'APY-' + y + '-' + j || String(p.name || '').startsWith(y + '-' + j + ' ')) || null;
+}
 function renderPoInbox() {
   const listEl = document.getElementById('po-inbox-list');
   if (!listEl) return;
@@ -2902,7 +2943,9 @@ function renderPoInbox() {
       <div class="po-top">
         <div><span class="badge b-new" style="background:#ede9fe;color:#5b21b6;">ใหม่</span> <b style="font-size:14px;margin-left:5px;">${esc(x.folder || ('job ' + x.job))}</b>
           <div>${x.fileUrl ? `<a class="po-file" href="${esc(x.fileUrl)}" target="_blank" rel="noopener">3. Output / ${esc(x.fileName)} ↗</a>` : `<span class="po-file">3. Output / ${esc(x.fileName)}</span>`}</div></div>
-        <div style="display:flex;gap:7px;"><button class="btn btn-ghost btn-sm" onclick="skipPoInbox('${esc(x.id)}')">ข้าม</button><button class="btn btn-success btn-sm" onclick="confirmPoInbox('${esc(x.id)}')">✓ ยืนยันต้นทุน + เข้า PM</button></div>
+        ${(() => { const ex = findExistingProject(x); return ex
+          ? `<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;"><span class="badge b-wait">มีในโปรเจกต์แล้ว: ${esc(ex.code)} ${fmtBaht(ex.budget)}</span><button class="btn btn-ghost btn-sm" onclick="skipPoInbox('${esc(x.id)}')">ข้าม</button><button class="btn btn-primary btn-sm" onclick="linkPoInbox('${esc(x.id)}','${esc(ex.id)}')">🔗 ผูกกับโปรเจกต์นี้</button></div>`
+          : `<div style="display:flex;gap:7px;"><button class="btn btn-ghost btn-sm" onclick="skipPoInbox('${esc(x.id)}')">ข้าม</button><button class="btn btn-success btn-sm" onclick="confirmPoInbox('${esc(x.id)}')">✓ ยืนยันต้นทุน + เข้า PM</button></div>`; })()}
       </div>
       <div class="po-fld">
         <div class="auto-f"><label>เลข job <span class="tagauto">อัตโนมัติ</span></label><input value="${esc(x.job)}" readonly></div>
@@ -2927,7 +2970,7 @@ function renderPoInbox() {
   document.getElementById('po-inbox-history').innerHTML = hist.length ? `<table><thead><tr><th>job</th><th>ลูกค้า</th><th>เลข PO</th><th>มูลค่า</th><th>ต้นทุนที่ยืนยัน</th><th>ผล</th><th>โดย</th></tr></thead><tbody>
     ${hist.map(x => `<tr><td>${esc(x.job)}</td><td>${esc(x.client)}</td><td>${esc(x.poNo)}</td><td class="s-money">${fmtBaht(x.value)}</td>
       <td class="s-money">${x.status === 'confirmed' ? fmtBaht(x.costConfirmed) : '—'}</td>
-      <td>${x.status === 'confirmed' ? '<span class="badge b-po">เข้า PM แล้ว</span>' : '<span class="badge b-loss">ข้าม</span>'}</td><td>${esc((x.confirmedBy || '').split('@')[0])}</td></tr>`).join('')}
+      <td>${x.status === 'confirmed' ? (x.linked ? '<span class="badge b-wait">ผูกกับโปรเจกต์เดิม</span>' : '<span class="badge b-po">เข้า PM แล้ว</span>') : '<span class="badge b-loss">ข้าม</span>'}</td><td>${esc((x.confirmedBy || '').split('@')[0])}</td></tr>`).join('')}
     </tbody></table>` : '<div class="s-empty">ยังไม่มีประวัติ</div>';
 }
 
@@ -2940,6 +2983,8 @@ function updatePoGp(id) {
 async function confirmPoInbox(id) {
   if (!isAdmin()) { alert('เฉพาะ Joe / นุ่น (ผู้ดูแลระบบ) เท่านั้นที่ยืนยัน PO ได้'); return; }
   const x = poInbox.find(i => i.id === id); if (!x) return;
+  const ex0 = findExistingProject(x);
+  if (ex0) { alert(`มีโปรเจกต์ ${ex0.code} อยู่แล้ว — สร้างซ้ำไม่ได้\nให้กด "ผูกกับโปรเจกต์นี้" หรือ "ข้าม" แทน`); renderPoInbox(); return; }
   const g = k => document.getElementById('pi-' + k + '-' + id).value.trim();
   const value = parseFloat(g('value')) || 0, costStr = g('cost'), owner = g('owner');
   if (!value) { alert('กรุณาใส่มูลค่า PO'); return; }
@@ -2961,7 +3006,7 @@ async function confirmPoInbox(id) {
     note: ['PO ' + x.poNo + (x.poDate ? ' ลงวันที่ ' + x.poDate : ''), x.quoteNo ? 'ใบเสนอราคา ' + x.quoteNo : '', x.credit ? 'เครดิต ' + x.credit : '', x.delivery ? 'วันส่งมอบใน PO ' + x.delivery : '',
            'ต้นทุน ' + cost.toLocaleString('th-TH') + ' ยืนยันโดย ' + (currentUser ? currentUser.email : '') + ' ' + todayStr()].filter(Boolean).join(' · '),
   };
-  if (projects.some(p => p.code === code) && !confirm(`มีโปรเจกต์รหัส ${code} อยู่แล้วในระบบ\nยังต้องการสร้างเพิ่มอีกรายการไหม?`)) return;
+  if (projects.some(p => p.code === code)) { alert(`มีโปรเจกต์ ${code} อยู่แล้ว — สร้างซ้ำไม่ได้\nให้กด "ผูกกับโปรเจกต์นี้" หรือ "ข้าม" แทน`); renderPoInbox(); return; }
   try {
     await db.collection('projects').doc(pid).set(project);
     await db.collection('po_inbox').doc(id).update({ status: 'confirmed', projectId: pid, costConfirmed: cost, valueConfirmed: value,
@@ -2977,6 +3022,17 @@ async function confirmPoInbox(id) {
   } catch (err) {
     alert('บันทึกไม่สำเร็จ: ' + (err && (err.code === 'permission-denied' ? 'ไม่มีสิทธิ์' : err.message)));
   }
+}
+
+function linkPoInbox(id, projectId) {
+  if (!isAdmin()) { alert('เฉพาะผู้ดูแลระบบเท่านั้น'); return; }
+  const x = poInbox.find(i => i.id === id), p = projects.find(q => String(q.id) === String(projectId));
+  if (!x || !p) return;
+  const diffs = [];
+  if ((+p.budget || 0) !== (+x.value || 0)) diffs.push(`มูลค่า: โปรเจกต์ ${fmtBaht(p.budget)} · PO ${fmtBaht(x.value)}`);
+  if (!confirm(`ผูก PO ${x.poNo} กับ ${p.code} ${p.name} ที่มีอยู่แล้ว (ไม่สร้างโปรเจกต์ใหม่)` + (diffs.length ? `\n\n⚠️ ${diffs.join('\n')}\nถ้าต้องแก้ ให้แก้ในหน้าโปรเจกต์เอง` : '') )) return;
+  db.collection('po_inbox').doc(id).update({ status: 'confirmed', linked: true, projectId: String(p.id), costConfirmed: +p.cost || 0, valueConfirmed: +p.budget || 0,
+    confirmedBy: currentUser ? currentUser.email : '', confirmedAt: new Date().toISOString() }).catch(err => alert('บันทึกไม่สำเร็จ: ' + (err && err.message)));
 }
 
 function skipPoInbox(id) {
