@@ -295,6 +295,24 @@
   body[data-role="none"] button[onclick*="editSale"],
   body[data-role="none"] button[onclick*="createProjectFromSale"],
   body:not([data-role="admin"]) button[onclick*="deleteSale"] { display:none !important; }
+  /* ===== PO เข้าใหม่ (เพิ่ม 19 ก.ย. 2569) ===== */
+  .po-item { border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:12px; background:#fff; }
+  .po-top { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; margin-bottom:11px; flex-wrap:wrap; }
+  .po-file { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; background:#f1f5f9; padding:3px 8px; border-radius:6px; color:#475569; display:inline-block; margin-top:5px; text-decoration:none; }
+  .po-fld { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .po-fld label { display:block; font-size:10.5px; color:var(--text-muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:.3px; }
+  .po-fld input, .po-fld select { width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:7px; font-size:12.5px; font-family:inherit; background:#fff; }
+  .po-fld .auto-f input { background:#ecfdf5; border-color:#a7f3d0; font-weight:600; }
+  .po-fld .need input, .po-fld .need select { background:#fff7ed; border-color:#fdba74; }
+  .po-cost { grid-column:span 2; }
+  .tagauto { font-size:9.5px; font-weight:800; color:#065f46; background:#d1fae5; padding:1px 5px; border-radius:4px; margin-left:5px; }
+  .tagneed { font-size:9.5px; font-weight:800; color:#9a3412; background:#ffedd5; padding:1px 5px; border-radius:4px; margin-left:5px; }
+  .po-warn { margin-top:10px; font-size:12px; color:#9a3412; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:8px 10px; }
+  .po-src { font-size:11px; color:var(--text-muted); margin-top:4px; }
+  .nav-pill-red { background:var(--danger); color:#fff; }
+  body:not([data-role="admin"]) button[onclick*="confirmPoInbox"],
+  body:not([data-role="admin"]) button[onclick*="skipPoInbox"] { display:none !important; }
+  @media (max-width: 1100px) { .po-fld { grid-template-columns:repeat(2,1fr); } }
   @media (max-width: 1100px) { .s-kpis { grid-template-columns:repeat(2,1fr); } .s-grid2 { grid-template-columns:1fr; } }
 
   @media (max-width: 1100px) {
@@ -449,6 +467,10 @@
     <div class="nav-item" onclick="showView('sales')">
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>
       <span>งานขาย</span><span class="nav-pill">ใหม่</span>
+    </div>
+    <div class="nav-item" onclick="showView('poinbox')">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
+      <span>PO เข้าใหม่</span><span class="nav-pill nav-pill-red" id="po-inbox-pill" style="display:none;">0</span>
     </div>
     <div class="nav-item" onclick="showView('projects')">
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/><path d="M3 7l9 6 9-6"/></svg>
@@ -750,6 +772,24 @@
             <select class="s-filter" id="sales-f-owner" onchange="renderSales()"><option value="">ทุกผู้ดูแล</option></select>
           </div></div>
         <div class="table-wrapper" id="sales-table"></div>
+      </div>
+    </div>
+
+    <!-- ========== PO INBOX VIEW (PO เข้าใหม่ — เพิ่ม 19 ก.ย. 2569) ========== -->
+    <div class="view" id="view-poinbox">
+      <div class="s-note">
+        <b>หลักการ:</b> Claude สแกนโฟลเดอร์ <code>3. Output</code> ทุก job บน Drive วันละ 2 รอบ (08:30 และ 13:30) เจอ PO ใหม่ที่ยังไม่มีในหน้าโปรเจกต์ →
+        กรอกทุกอย่างที่อ่านได้จากเอกสาร (<span class="tagauto">อัตโนมัติ</span>) →
+        ช่องที่ต้องได้คำตอบจาก Joe (<span class="tagneed">ถาม Joe</span>: ต้นทุน · ผู้รับผิดชอบ · ประเภท · สถานะ · การเก็บเงิน) <b>ระบบไม่เลือกให้ ต้องเลือกเองทุกครั้ง</b> แล้วกดยืนยัน งานจึงเข้าหน้าโปรเจกต์
+      </div>
+      <div id="po-inbox-error" class="s-note s-note-blue" style="display:none;"></div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><div><div class="card-title" id="po-inbox-title">PO ที่รอยืนยัน</div><div class="s-sub" id="po-inbox-sub"></div></div></div>
+        <div class="card-body" id="po-inbox-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">ประวัติล่าสุด</div></div>
+        <div class="table-wrapper" id="po-inbox-history"></div>
       </div>
     </div>
 
@@ -1142,7 +1182,8 @@ const db   = firebase.firestore();
 let projects = [];
 let tasks    = [];
 let members  = [];
-let sales    = [];   // งานขาย (lead → ได้ PO) — collection `sales`
+let sales    = [];
+let poInbox  = [];   // PO ที่ Claude สแกนเจอจาก Drive รอยืนยัน — collection `po_inbox`   // งานขาย (lead → ได้ PO) — collection `sales`
 let currentUser = null;
 
 // ============================================================
@@ -1206,7 +1247,7 @@ function loadMyRole(user) {
 }
 
 // Firestore unsubscribe handles
-let unsubProjects, unsubTasks, unsubMembers, unsubSales;
+let unsubProjects, unsubTasks, unsubMembers, unsubSales, unsubPoInbox;
 
 // ---- AUTH STATE ----
 auth.onAuthStateChanged(user => {
@@ -1294,6 +1335,17 @@ function startFirestoreListeners() {
       : 'อ่านข้อมูลงานขายไม่ได้: ' + (err && err.message);
     renderSales();
   });
+  unsubPoInbox = db.collection('po_inbox').onSnapshot(snap => {
+    poInbox = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    poInboxError = '';
+    renderPoInbox();
+  }, err => {
+    console.error('อ่าน PO เข้าใหม่ ไม่ได้:', err);
+    poInboxError = (err && err.code === 'permission-denied')
+      ? 'ยังเปิดหน้านี้ไม่ได้ — ต้อง publish กฎ Firestore ชุดใหม่ (ที่มีส่วน po_inbox) ก่อน'
+      : 'อ่านข้อมูลไม่ได้: ' + (err && err.message);
+    renderPoInbox();
+  });
 }
 
 // กันเคสชื่อใน roles ไม่ตรงกับรายชื่อในทีมงาน (เช่นมีคนไปแก้ roles มือเปล่าใน Console)
@@ -1316,6 +1368,7 @@ function stopFirestoreListeners() {
   if (unsubTasks)    { unsubTasks();    unsubTasks    = null; }
   if (unsubMembers)  { unsubMembers();  unsubMembers  = null; }
   if (unsubSales)    { unsubSales();    unsubSales    = null; }
+  if (unsubPoInbox)  { unsubPoInbox();  unsubPoInbox  = null; }
 }
 
 // ---- SAVE HELPERS (Firestore) ----
@@ -1452,6 +1505,7 @@ function initials(name) {
 const viewTitles = {
   dashboard: '📊 Dashboard',
   sales: '📈 งานขาย',
+  poinbox: '📥 PO เข้าใหม่',
   projects: '📁 โปรเจกต์',
   tasks: '✅ งาน (Tasks)',
   team: '👥 ทีมงาน',
@@ -1481,6 +1535,7 @@ function renderAll() {
   renderReports();
   renderBudget();
   renderSales();
+  renderPoInbox();
 }
 
 // ============================================================
@@ -2674,6 +2729,125 @@ function createProjectFromSale(id, fresh) {
   const origClose = closeModal;
   closeModal = function (id) { if (id === 'modal-project') setTimeout(() => { pendingSaleLink = null; }, 0); return origClose(id); };
 })();
+
+
+// ============================================================
+//  PO เข้าใหม่ (PO inbox) — เพิ่ม 19 ก.ย. 2569
+//  Claude สแกน Drive แล้วเขียนการ์ดลง `po_inbox` (status: pending)
+//  admin ตรวจ "ต้นทุน" แล้วยืนยัน → สร้างโปรเจกต์ + ผูกงานขาย (ถ้ามีเลข job ตรงกัน)
+// ============================================================
+let poInboxError = '';
+const PROJECT_TYPES = ['Automation','Electrical','Software','Installation','Maintenance','Product Supply','Service','Others'];
+
+function renderPoInbox() {
+  const listEl = document.getElementById('po-inbox-list');
+  if (!listEl) return;
+  const errEl = document.getElementById('po-inbox-error');
+  errEl.style.display = poInboxError ? 'block' : 'none';
+  errEl.textContent = poInboxError;
+
+  const pending = poInbox.filter(x => x.status === 'pending').sort((a, b) => String(a.job).localeCompare(String(b.job)));
+  const pill = document.getElementById('po-inbox-pill');
+  pill.style.display = pending.length ? 'inline-block' : 'none';
+  pill.textContent = pending.length;
+  document.getElementById('po-inbox-title').textContent = `PO ที่รอยืนยัน — ${pending.length} รายการ`;
+  const last = poInbox.map(x => x.foundAt || '').sort().pop();
+  document.getElementById('po-inbox-sub').textContent = last ? 'สแกนเจอล่าสุด: ' + new Date(last).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : 'ยังไม่มีผลสแกน';
+
+  listEl.innerHTML = pending.length ? pending.map(x => {
+    const v = +x.value || 0, c = x.costSuggested === '' || x.costSuggested == null ? '' : +x.costSuggested;
+    const gp = v && c !== '' ? ((v - c) * 100 / v).toFixed(1) + '%' : '—';
+    // ข้อมูลที่ต้องได้จาก Joe (ผู้รับผิดชอบ / ประเภท / สถานะ / การเก็บเงิน) — ไม่เลือกให้ล่วงหน้า ต้องเลือกเองทุกครั้ง (Joe สั่ง 19 ก.ย. 2569)
+    const ownerOpts = members.map(m => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('');
+    const typeOpts = PROJECT_TYPES.map(t => `<option>${t}</option>`).join('');
+    const statusOpts = ['วางแผน','กำลังดำเนินการ','รอลูกค้า','เสร็จสมบูรณ์'].map(t => `<option>${t}</option>`).join('');
+    const payOpts = ['ยังไม่เก็บ','เก็บบางส่วน','เก็บครบแล้ว','ค้างชำระ'].map(t => `<option>${t}</option>`).join('');
+    const warns = (x.warnings || []).filter(Boolean);
+    return `<div class="po-item" id="po-${esc(x.id)}">
+      <div class="po-top">
+        <div><span class="badge b-new" style="background:#ede9fe;color:#5b21b6;">ใหม่</span> <b style="font-size:14px;margin-left:5px;">${esc(x.folder || ('job ' + x.job))}</b>
+          <div>${x.fileUrl ? `<a class="po-file" href="${esc(x.fileUrl)}" target="_blank" rel="noopener">3. Output / ${esc(x.fileName)} ↗</a>` : `<span class="po-file">3. Output / ${esc(x.fileName)}</span>`}</div></div>
+        <div style="display:flex;gap:7px;"><button class="btn btn-ghost btn-sm" onclick="skipPoInbox('${esc(x.id)}')">ข้าม</button><button class="btn btn-success btn-sm" onclick="confirmPoInbox('${esc(x.id)}')">✓ ยืนยันต้นทุน + เข้า PM</button></div>
+      </div>
+      <div class="po-fld">
+        <div class="auto-f"><label>เลข job <span class="tagauto">อัตโนมัติ</span></label><input value="${esc(x.job)}" readonly></div>
+        <div class="auto-f"><label>ลูกค้า <span class="tagauto">อัตโนมัติ</span></label><input id="pi-client-${esc(x.id)}" value="${esc(x.client)}"></div>
+        <div class="auto-f"><label>เลข PO <span class="tagauto">อัตโนมัติ</span></label><input value="${esc(x.poNo)}" readonly></div>
+        <div class="auto-f"><label>วันที่ PO <span class="tagauto">อัตโนมัติ</span></label><input id="pi-podate-${esc(x.id)}" type="date" value="${esc(x.poDate)}"></div>
+        <div class="auto-f" style="grid-column:span 2;"><label>ชื่องาน <span class="tagauto">อัตโนมัติ</span></label><input id="pi-name-${esc(x.id)}" value="${esc(x.name)}"></div>
+        <div class="auto-f"><label>มูลค่า PO (ex-VAT) <span class="tagauto">อ่านจาก PO</span></label><input id="pi-value-${esc(x.id)}" type="number" value="${esc(x.value)}" oninput="updatePoGp('${esc(x.id)}')"></div>
+        <div class="auto-f"><label>กำหนดส่งมอบ <span class="tagauto">อ่านจาก PO</span></label><input id="pi-end-${esc(x.id)}" type="date" value="${esc(x.delivery)}"></div>
+        <div class="need po-cost"><label>ต้นทุน (บาท) <span class="tagneed">ถาม Joe</span></label><input id="pi-cost-${esc(x.id)}" type="number" value="${esc(c)}" oninput="updatePoGp('${esc(x.id)}')">
+          <div class="po-src">ที่มา: ${esc(x.costSource || 'ไม่พบ — กรอกเอง')} · GP <b id="pi-gp-${esc(x.id)}">${gp}</b></div></div>
+        <div class="need"><label>ประเภทงาน <span class="tagneed">ถาม Joe</span></label><select id="pi-type-${esc(x.id)}"><option value="">-- เลือก --</option>${typeOpts}</select></div>
+        <div class="need"><label>ผู้รับผิดชอบ <span class="tagneed">ถาม Joe</span></label><select id="pi-owner-${esc(x.id)}"><option value="">-- เลือก --</option>${ownerOpts}</select></div>
+        <div class="need"><label>สถานะงาน <span class="tagneed">ถาม Joe</span></label><select id="pi-status-${esc(x.id)}"><option value="">-- เลือก --</option>${statusOpts}</select></div>
+        <div class="need"><label>การเก็บเงิน <span class="tagneed">ถาม Joe</span></label><select id="pi-pay-${esc(x.id)}"><option value="">-- เลือก --</option>${payOpts}</select></div>
+      </div>
+      ${warns.length ? `<div class="po-warn">⚠️ ${warns.map(esc).join('<br>⚠️ ')}</div>` : ''}
+    </div>`;
+  }).join('') : '<div class="s-empty">ไม่มี PO ที่รอยืนยัน 👍</div>';
+
+  const hist = poInbox.filter(x => x.status !== 'pending').sort((a, b) => String(b.confirmedAt || b.foundAt || '').localeCompare(String(a.confirmedAt || a.foundAt || ''))).slice(0, 15);
+  document.getElementById('po-inbox-history').innerHTML = hist.length ? `<table><thead><tr><th>job</th><th>ลูกค้า</th><th>เลข PO</th><th>มูลค่า</th><th>ต้นทุนที่ยืนยัน</th><th>ผล</th><th>โดย</th></tr></thead><tbody>
+    ${hist.map(x => `<tr><td>${esc(x.job)}</td><td>${esc(x.client)}</td><td>${esc(x.poNo)}</td><td class="s-money">${fmtBaht(x.value)}</td>
+      <td class="s-money">${x.status === 'confirmed' ? fmtBaht(x.costConfirmed) : '—'}</td>
+      <td>${x.status === 'confirmed' ? '<span class="badge b-po">เข้า PM แล้ว</span>' : '<span class="badge b-loss">ข้าม</span>'}</td><td>${esc((x.confirmedBy || '').split('@')[0])}</td></tr>`).join('')}
+    </tbody></table>` : '<div class="s-empty">ยังไม่มีประวัติ</div>';
+}
+
+function updatePoGp(id) {
+  const v = parseFloat(document.getElementById('pi-value-' + id).value) || 0;
+  const c = document.getElementById('pi-cost-' + id).value;
+  document.getElementById('pi-gp-' + id).textContent = v && c !== '' ? ((v - (+c)) * 100 / v).toFixed(1) + '%' : '—';
+}
+
+async function confirmPoInbox(id) {
+  if (!isAdmin()) { alert('เฉพาะ Joe / นุ่น (ผู้ดูแลระบบ) เท่านั้นที่ยืนยัน PO ได้'); return; }
+  const x = poInbox.find(i => i.id === id); if (!x) return;
+  const g = k => document.getElementById('pi-' + k + '-' + id).value.trim();
+  const value = parseFloat(g('value')) || 0, costStr = g('cost'), owner = g('owner');
+  if (!value) { alert('กรุณาใส่มูลค่า PO'); return; }
+  if (costStr === '') { alert('กรุณาใส่ต้นทุนก่อนยืนยัน'); return; }
+  const type = g('type'), status = g('status'), pay = g('pay');
+  const missing = [!owner && 'ผู้รับผิดชอบ', !type && 'ประเภทงาน', !status && 'สถานะงาน', !pay && 'การเก็บเงิน'].filter(Boolean);
+  if (missing.length) { alert('ยังไม่ได้เลือก: ' + missing.join(' · ') + '\nช่องเหล่านี้ระบบไม่เลือกให้ ต้องเลือกเองทุกครั้ง'); return; }
+  const cost = parseFloat(costStr) || 0;
+  const gp = ((value - cost) * 100 / value).toFixed(1);
+  // ถามต้นทุนก่อนทุกครั้ง (Joe สั่ง 19 ก.ย. 2569)
+  if (!confirm(`Job ${x.job} — ${g('client')}\n\nต้นทุน ${cost.toLocaleString('th-TH')} บาท ถูกต้องไหม?\nมูลค่า PO ${value.toLocaleString('th-TH')} บาท · GP ${gp}%\nที่มาของต้นทุน: ${x.costSource || 'กรอกเอง'}\n\nผู้รับผิดชอบ: ${owner}\nประเภท: ${type} · สถานะ: ${status} · เก็บเงิน: ${pay}\n\nกด OK = ยืนยันและบันทึกเข้าหน้าโปรเจกต์`)) return;
+  if (+gp < 30 && !confirm(`⚠️ GP ${gp}% ต่ำกว่าพื้น 30%\nยืนยันบันทึกต่อไหม?`)) return;
+  const pid = String(Date.now());
+  const code = 'APY-' + (g('podate') || todayStr()).slice(0, 4) + '-' + x.job;
+  const project = {
+    code, name: (g('podate') || todayStr()).slice(0, 4) + '-' + x.job + ' ' + g('name'), type,
+    client: g('client'), contact: x.contact || '', budget: value, cost,
+    start: g('podate') || todayStr(), end: g('end') || '', status, payment: pay, progress: status === 'เสร็จสมบูรณ์' ? 100 : 0, owner,
+    note: ['PO ' + x.poNo + (x.poDate ? ' ลงวันที่ ' + x.poDate : ''), x.quoteNo ? 'ใบเสนอราคา ' + x.quoteNo : '', x.credit ? 'เครดิต ' + x.credit : '',
+           'ต้นทุน ' + cost.toLocaleString('th-TH') + ' ยืนยันโดย ' + (currentUser ? currentUser.email : '') + ' ' + todayStr()].filter(Boolean).join(' · '),
+  };
+  if (projects.some(p => p.code === code) && !confirm(`มีโปรเจกต์รหัส ${code} อยู่แล้วในระบบ\nยังต้องการสร้างเพิ่มอีกรายการไหม?`)) return;
+  try {
+    await db.collection('projects').doc(pid).set(project);
+    await db.collection('po_inbox').doc(id).update({ status: 'confirmed', projectId: pid, costConfirmed: cost, valueConfirmed: value,
+      owner, type, projectStatus: status, payment: pay, confirmedBy: currentUser ? currentUser.email : '', confirmedAt: new Date().toISOString() });
+    // ผูกงานขายที่เลข job ตรงกัน (ถ้ามี)
+    const sale = sales.find(s => String(s.job || '').trim() === String(x.job) && !s.projectId);
+    if (sale) await db.collection('sales').doc(sale.id).update({ stage: 'ได้ PO', poDate: project.start, closedDate: todayStr(), projectId: pid, value, updatedAt: new Date().toISOString() });
+    alert(`✅ บันทึก ${code} เข้าหน้าโปรเจกต์แล้ว` + (sale ? '\n(อัปเดตงานขายเป็น "ได้ PO" ให้ด้วย)' : ''));
+  } catch (err) {
+    alert('บันทึกไม่สำเร็จ: ' + (err && (err.code === 'permission-denied' ? 'ไม่มีสิทธิ์' : err.message)));
+  }
+}
+
+function skipPoInbox(id) {
+  if (!isAdmin()) { alert('เฉพาะผู้ดูแลระบบเท่านั้น'); return; }
+  const x = poInbox.find(i => i.id === id); if (!x) return;
+  const why = prompt(`ข้าม PO ${x.poNo} (job ${x.job})?\nใส่เหตุผลสั้นๆ (เช่น บันทึกไว้แล้ว / ไม่ใช่ PO):`, '');
+  if (why === null) return;
+  db.collection('po_inbox').doc(id).update({ status: 'skipped', skipReason: why, confirmedBy: currentUser ? currentUser.email : '', confirmedAt: new Date().toISOString() })
+    .catch(err => alert('บันทึกไม่สำเร็จ: ' + (err && err.message)));
+}
 
 // ============================================================
 // INIT
