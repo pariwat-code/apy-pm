@@ -1007,12 +1007,26 @@
           <label class="form-label">สถานะการเก็บเงิน</label>
           <select class="form-control" id="p-payment">
             <option>ยังไม่เก็บ</option>
+            <option>วางบิลแล้ว รอเงิน</option>
             <option>เก็บบางส่วน</option>
             <option>เก็บครบแล้ว</option>
             <option>ค้างชำระ</option>
           </select>
         </div>
-        <div class="form-group"></div>
+        <div class="form-group">
+          <label class="form-label">เลขใบแจ้งหนี้ (IV)</label>
+          <input class="form-control" id="p-invoice" placeholder="เช่น IV6909014">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">วันวางบิล</label>
+          <input class="form-control" id="p-billdate" type="date">
+        </div>
+        <div class="form-group">
+          <label class="form-label">ครบกำหนดรับเงิน</label>
+          <input class="form-control" id="p-duedate" type="date">
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">ผู้รับผิดชอบหลัก (ทีมงาน APY)</label>
@@ -1263,7 +1277,7 @@ function guardEdit(ownerName, what) {
 const ROLE_LABEL = { admin: 'แก้ไขได้ทั้งหมด', viewer: 'ดูอย่างเดียว',
                      sales: 'แก้ได้เฉพาะงานของตัวเอง', none: 'ยังไม่ได้กำหนดสิทธิ์' };
 
-const APP_VERSION = '2026-09-19h';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
+const APP_VERSION = '2026-09-24a';   // เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่ — ใช้เช็กว่า live เป็นเวอร์ชันล่าสุด
 function applyRoleToUI() {
   document.body.setAttribute('data-role', myRole.level);
   const nm = document.getElementById('sb-user-name'), rl = document.getElementById('sb-user-role');
@@ -1503,6 +1517,7 @@ const statusColors = {
 };
 const paymentColors = {
   'ยังไม่เก็บ':   { bg: '#1e293b', color: '#94a3b8', border: '#334155' },
+  'วางบิลแล้ว รอเงิน': { bg: '#3b2a06', color: '#fbbf24', border: '#d97706' },
   'เก็บบางส่วน': { bg: '#1e3a5f', color: '#60a5fa', border: '#2563eb' },
   'เก็บครบแล้ว': { bg: '#14532d', color: '#4ade80', border: '#16a34a' },
   'ค้างชำระ':    { bg: '#450a0a', color: '#f87171', border: '#dc2626' },
@@ -1840,7 +1855,7 @@ function renderProjectsList() {
       <td><span class="type-badge" style="background:${typeColors[p.type]||'#94a3b8'}22;color:${typeColors[p.type]||'#94a3b8'};border:1px solid ${typeColors[p.type]||'#94a3b8'}44;">${p.type}</span></td>
       <td style="font-weight:700;">${fmtMoney(p.budget)}<div style="font-size:10px;font-weight:600;${hasActual(p) ? 'color:#15803d;' : 'color:#b45309;'}">${hasActual(p) ? 'ทุนจริง ' + fmtMoney(p.actualCost) : '⏳ รอต้นทุนจริง'}</div></td>
       <td><span class="badge ${statusColors[p.status]||'badge-gray'}">${p.status}</span></td>
-      <td>${(()=>{ const pc=paymentColors[p.payment||'ยังไม่เก็บ']||paymentColors['ยังไม่เก็บ']; return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:${pc.bg};color:${pc.color};border:1px solid ${pc.border};">${p.payment||'ยังไม่เก็บ'}</span>`; })()}</td>
+      <td>${(()=>{ const pc=paymentColors[p.payment||'ยังไม่เก็บ']||paymentColors['ยังไม่เก็บ']; return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:${pc.bg};color:${pc.color};border:1px solid ${pc.border};">${p.payment||'ยังไม่เก็บ'}</span>${p.dueDate ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${p.invoiceNo ? esc(p.invoiceNo)+' · ' : ''}รับเงิน ${p.dueDate}</div>` : ''}`; })()}</td>
       <td style="min-width:90px;">
         <div style="display:flex;align-items:center;gap:6px;">
           <div class="progress-bar" style="flex:1;"><div class="progress-fill" style="width:${p.progress}%;background:${progressColor(p.progress)};"></div></div>
@@ -2077,7 +2092,7 @@ function openNewProjectModal() {
   editingPrevActual = '';
   document.getElementById('p-actualcost').disabled = !isAdmin(); document.getElementById('p-actualnote').disabled = !isAdmin();
   document.getElementById('modal-project-title').textContent = '🆕 เพิ่มโปรเจกต์ใหม่';
-  ['p-code','p-pono','p-name','p-client','p-contact','p-budget','p-cost','p-actualcost','p-actualnote','p-note'].forEach(id => {
+  ['p-code','p-pono','p-name','p-client','p-contact','p-budget','p-cost','p-actualcost','p-actualnote','p-note','p-invoice','p-billdate','p-duedate'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -2115,6 +2130,9 @@ function editProject(id) {
   document.getElementById('p-end').value = p.end||'';
   document.getElementById('p-status').value = p.status||'วางแผน';
   document.getElementById('p-payment').value = p.payment||'ยังไม่เก็บ';
+  document.getElementById('p-invoice').value = p.invoiceNo||'';
+  document.getElementById('p-billdate').value = p.billDate||'';
+  document.getElementById('p-duedate').value = p.dueDate||'';
   document.getElementById('p-progress').value = p.progress||0;
   populateOwnerDropdown(p.owner||'');
   document.getElementById('p-actualcost').disabled = !isAdmin(); document.getElementById('p-actualnote').disabled = !isAdmin();
@@ -2148,6 +2166,9 @@ function saveProject() {
     end: document.getElementById('p-end').value,
     status: document.getElementById('p-status').value,
     payment: document.getElementById('p-payment').value,
+    invoiceNo: document.getElementById('p-invoice').value.trim(),
+    billDate: document.getElementById('p-billdate').value,
+    dueDate: document.getElementById('p-duedate').value,
     progress: parseInt(document.getElementById('p-progress').value) || 0,
     owner: document.getElementById('p-owner').value,
     note: document.getElementById('p-note').value.trim(),
@@ -2964,7 +2985,7 @@ function renderPoInbox() {
     const ownerOpts = members.map(m => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('');
     const typeOpts = PROJECT_TYPES.map(t => `<option>${t}</option>`).join('');
     const statusOpts = ['วางแผน','กำลังดำเนินการ','รอลูกค้า','เสร็จสมบูรณ์'].map(t => `<option>${t}</option>`).join('');
-    const payOpts = ['ยังไม่เก็บ','เก็บบางส่วน','เก็บครบแล้ว','ค้างชำระ'].map(t => `<option>${t}</option>`).join('');
+    const payOpts = ['ยังไม่เก็บ','วางบิลแล้ว รอเงิน','เก็บบางส่วน','เก็บครบแล้ว','ค้างชำระ'].map(t => `<option>${t}</option>`).join('');
     const warns = (x.warnings || []).filter(Boolean);
     return `<div class="po-item" id="po-${esc(x.id)}">
       <div class="po-top">
